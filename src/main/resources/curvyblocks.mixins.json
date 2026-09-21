@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8.7",
+  "package": "com.lirxowo.curvyblocks.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["EntityGetterMixin"],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}
