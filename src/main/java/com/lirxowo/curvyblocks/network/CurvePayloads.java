@@ -168,6 +168,17 @@ public final class CurvePayloads {
         }
     }
 
+    public record UseCapture(boolean captured) implements CustomPacketPayload {
+        public static final Type<UseCapture> TYPE = createType("use_capture");
+        public static final StreamCodec<FriendlyByteBuf, UseCapture> CODEC = StreamCodec.of(
+                (buffer, value) -> buffer.writeBoolean(value.captured), buffer -> new UseCapture(buffer.readBoolean()));
+
+        @Override
+        public Type<UseCapture> type() {
+            return TYPE;
+        }
+    }
+
     private static void writeCurve(FriendlyByteBuf buffer, Curve curve) {
         buffer.writeVarLong(curve.id());
         buffer.writeVarInt(Block.getId(curve.material()));

@@ -5,12 +5,14 @@ import com.lirxowo.curvyblocks.client.render.CurveHud;
 import com.lirxowo.curvyblocks.client.render.CurveRenderer;
 import com.lirxowo.curvyblocks.network.CurveNetwork;
 import com.lirxowo.curvyblocks.network.CurvePayloads;
+import com.lirxowo.curvyblocks.placement.CurveInteractions;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
@@ -21,6 +23,7 @@ import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -94,9 +97,27 @@ public final class CurvyBlocksClient {
         }
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void interaction(InputEvent.InteractionKeyMappingTriggered event) {
         EDITOR.interaction(event);
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void rightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+        if (capturesVanillaUse(event)) {
+            CurveInteractions.cancel(event);
+        }
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void rightClickItem(PlayerInteractEvent.RightClickItem event) {
+        if (capturesVanillaUse(event)) {
+            CurveInteractions.cancel(event);
+        }
+    }
+
+    private static boolean capturesVanillaUse(PlayerInteractEvent event) {
+        return event.getLevel().isClientSide() && event.getEntity() == Minecraft.getInstance().player && EDITOR.syncUseCapture();
     }
 
     @SubscribeEvent
@@ -124,6 +145,7 @@ public final class CurvyBlocksClient {
     public static void login(ClientPlayerNetworkEvent.LoggingIn event) {
         ensureLevel();
         PacketDistributor.sendToServer(new CurvePayloads.Mode(EDITOR.enabled()));
+        EDITOR.syncUseCapture();
     }
 
     @SubscribeEvent

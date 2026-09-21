@@ -19,10 +19,11 @@ public final class CurveNetwork {
     }
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("2");
+        PayloadRegistrar registrar = event.registrar("3");
         registrar.playToServer(CurvePayloads.Place.TYPE, CurvePayloads.Place.CODEC, CurveServer::place);
         registrar.playToServer(CurvePayloads.Remove.TYPE, CurvePayloads.Remove.CODEC, CurveServer::remove);
         registrar.playToServer(CurvePayloads.Mode.TYPE, CurvePayloads.Mode.CODEC, CurveServer::mode);
+        registrar.playToServer(CurvePayloads.UseCapture.TYPE, CurvePayloads.UseCapture.CODEC, CurveServer::captureUse);
         registrar.playToClient(CurvePayloads.ChunkSync.TYPE, CurvePayloads.ChunkSync.CODEC, CurveNetwork::receive);
         registrar.playToClient(CurvePayloads.ForgetChunk.TYPE, CurvePayloads.ForgetChunk.CODEC, CurveNetwork::receive);
         registrar.playToClient(CurvePayloads.Added.TYPE, CurvePayloads.Added.CODEC, CurveNetwork::receive);

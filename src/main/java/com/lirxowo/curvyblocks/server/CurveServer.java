@@ -11,6 +11,7 @@ import java.util.UUID;
 import com.lirxowo.curvyblocks.api.CurveEditEvent;
 import com.lirxowo.curvyblocks.config.CurveConfig;
 import com.lirxowo.curvyblocks.network.CurvePayloads;
+import com.lirxowo.curvyblocks.placement.CurveInteractions;
 import com.lirxowo.curvyblocks.placement.CurveMaterials;
 import com.lirxowo.curvyblocks.placement.CurvePlacement;
 import com.lirxowo.curvyblocks.placement.PlacementResult;
@@ -26,9 +27,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.ClipContext;
@@ -39,6 +38,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -54,6 +54,7 @@ public final class CurveServer {
     private static final double REACH_TOLERANCE = 0.5;
     private static final Map<UUID, Long> LAST_ACTION = new HashMap<>();
     private static final Set<UUID> DISABLED_PLAYERS = new HashSet<>();
+    private static final Set<UUID> CAPTURED_PLAYERS = new HashSet<>();
 
     private CurveServer() {
     }
@@ -67,6 +68,15 @@ public final class CurveServer {
         }
     }
 
+    public static void captureUse(CurvePayloads.UseCapture payload, IPayloadContext context) {
+        UUID player = context.player().getUUID();
+        if (payload.captured()) {
+            CAPTURED_PLAYERS.add(player);
+        } else {
+            CAPTURED_PLAYERS.remove(player);
+        }
+    }
+
     public static void place(CurvePayloads.Place payload, IPayloadContext context) {
         ServerPlayer player = (ServerPlayer) context.player();
         if (!beginAction(player, payload.requestId(), context)) {
@@ -74,7 +84,7 @@ public final class CurveServer {
         }
         ItemStack held = player.getOffhandItem();
         BlockState state = CurveMaterials.state(held);
-        if (state == null || !enabled(player) || !player.mayBuild() || player.isSpectator()) {
+        if (state == null || !enabled(player) || !CurveInteractions.canPlace(player)) {
             respond(context, payload.requestId(), PlacementResult.DENIED, 0);
             return;
         }
@@ -109,6 +119,9 @@ public final class CurveServer {
         }
         CurveMaterials.consume(player, material, cost);
         Curve placed = data.add(draft, player.getUUID(), material, cost);
+        if (cost > 0) {
+            CurveInventorySync.syncChanges(player);
+        }
         broadcast(level, placed, new CurvePayloads.Added(level.dimension().location(), placed));
         playSound(level, player, placed, false);
         respond(context, payload.requestId(), PlacementResult.OK, cost);
@@ -155,6 +168,9 @@ public final class CurveServer {
         broadcast(level, entry.curve(), new CurvePayloads.Removed(level.dimension().location(), payload.curveId()));
         int refund = player.getAbilities().instabuild ? 0 : entry.paidCost();
         CurveMaterials.refund(player, entry.material(), refund);
+        if (refund > 0) {
+            CurveInventorySync.syncChanges(player);
+        }
         playSound(level, player, entry.curve(), true);
         respond(context, payload.requestId(), PlacementResult.OK, refund);
     }
@@ -231,23 +247,23 @@ public final class CurveServer {
     }
 
     private static boolean capturesInteraction(Player player) {
-        return !player.level().isClientSide() && enabled(player) && player.mayBuild()
-                && !player.isSpectator() && player.getOffhandItem().getItem() instanceof BlockItem;
+        return !player.level().isClientSide() && (CAPTURED_PLAYERS.contains(player.getUUID())
+                || enabled(player) && CurveInteractions.canPlace(player));
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void rightClickBlock(PlayerInteractEvent.RightClickBlock event) {
         if (capturesInteraction(event.getEntity())) {
-            event.setCanceled(true);
-            event.setCancellationResult(InteractionResult.FAIL);
+            CurveInteractions.cancel(event);
+            CurveInventorySync.restoreHand(event.getEntity(), event.getHand());
         }
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void rightClickItem(PlayerInteractEvent.RightClickItem event) {
         if (capturesInteraction(event.getEntity())) {
-            event.setCanceled(true);
-            event.setCancellationResult(InteractionResult.FAIL);
+            CurveInteractions.cancel(event);
+            CurveInventorySync.restoreHand(event.getEntity(), event.getHand());
         }
     }
 
@@ -291,11 +307,13 @@ public final class CurveServer {
         UUID id = event.getEntity().getUUID();
         LAST_ACTION.remove(id);
         DISABLED_PLAYERS.remove(id);
+        CAPTURED_PLAYERS.remove(id);
     }
 
     @SubscribeEvent
     public static void serverStopped(ServerStoppedEvent event) {
         LAST_ACTION.clear();
         DISABLED_PLAYERS.clear();
+        CAPTURED_PLAYERS.clear();
     }
 }

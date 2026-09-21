@@ -11,6 +11,7 @@ import com.lirxowo.curvyblocks.geometry.CurveLimits;
 import com.lirxowo.curvyblocks.geometry.CurveMath;
 import com.lirxowo.curvyblocks.geometry.CurvePoint;
 import com.lirxowo.curvyblocks.network.CurvePayloads;
+import com.lirxowo.curvyblocks.placement.CurveInteractions;
 import com.lirxowo.curvyblocks.placement.CurveMaterials;
 import com.lirxowo.curvyblocks.placement.CurvePathfinder;
 import com.lirxowo.curvyblocks.placement.CurvePlacement;
@@ -25,7 +26,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.state.BlockState;
@@ -50,6 +50,7 @@ public final class CurveEditor {
     private final List<CurvePoint> points = new ArrayList<>();
     private boolean enabled = true;
     private boolean useConsumed;
+    private boolean useCaptureSent;
     private boolean attackConsumed;
     private int thicknessIndex = 2;
     private int gridIndex = 1;
@@ -94,6 +95,7 @@ public final class CurveEditor {
     }
 
     public void reset() {
+        setUseCapture(false);
         clearDraft();
         rayOrigin = null;
         rayDirection = null;
@@ -161,6 +163,7 @@ public final class CurveEditor {
             message(Component.translatable("curvyblocks.message.timeout").withStyle(ChatFormatting.RED));
         }
         if (minecraft.screen != null) {
+            syncUseCapture();
             return;
         }
         handleKeys();
@@ -171,6 +174,7 @@ public final class CurveEditor {
         }
         updatePreview();
         updateHud();
+        syncUseCapture();
     }
 
     public void updateFrameTarget(Camera camera) {
@@ -226,9 +230,29 @@ public final class CurveEditor {
     }
 
     private boolean canBuild() {
-        Minecraft minecraft = Minecraft.getInstance();
-        return enabled && minecraft.player != null && minecraft.player.isAlive() && minecraft.player.mayBuild() && !minecraft.player.isSpectator()
-                && minecraft.player.getOffhandItem().getItem() instanceof BlockItem;
+        return enabled && CurveInteractions.canPlace(Minecraft.getInstance().player);
+    }
+
+    public boolean capturesUse() {
+        return pendingRequest != 0 || (useConsumed && Minecraft.getInstance().options.keyUse.isDown())
+                || canBuild() || (enabled && (!points.isEmpty() || queuedPlacement));
+    }
+
+    public boolean syncUseCapture() {
+        boolean captured = capturesUse();
+        setUseCapture(captured);
+        return captured;
+    }
+
+    private void setUseCapture(boolean captured) {
+        if (Minecraft.getInstance().getConnection() == null) {
+            useCaptureSent = false;
+            return;
+        }
+        if (useCaptureSent != captured) {
+            PacketDistributor.sendToServer(new CurvePayloads.UseCapture(captured));
+            useCaptureSent = captured;
+        }
     }
 
     private void updateTarget() {
@@ -431,11 +455,14 @@ public final class CurveEditor {
         if (minecraft.screen != null || minecraft.player == null) {
             return;
         }
-        if (event.isUseItem() && (canBuild() || pendingRequest != 0)) {
+        if (event.isUseItem() && syncUseCapture()) {
             event.setCanceled(true);
             event.setSwingHand(false);
-            if (event.getHand() == InteractionHand.MAIN_HAND && !useConsumed && pendingRequest == 0) {
+            if (event.getHand() == InteractionHand.MAIN_HAND && !useConsumed) {
                 useConsumed = true;
+                if (pendingRequest != 0 || !canBuild()) {
+                    return;
+                }
                 updateTarget();
                 if (target == null) {
                     return;
