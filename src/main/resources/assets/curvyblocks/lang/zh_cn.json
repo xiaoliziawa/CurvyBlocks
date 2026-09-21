@@ -19,6 +19,7 @@
   "curvyblocks.hud.cost": "长度 %s 格 · 消耗 %s 个 · 持有 %s 个",
   "curvyblocks.hud.free": "按住 %s：空中放置 · Alt＋滚轮：距离 · %s：开关",
   "curvyblocks.hud.remove": "左键：拆除这条曲线",
+  "curvyblocks.hud.pick": "%s：选取曲线的方块材质",
   "curvyblocks.hud.wait": "正在等待服务器确认……",
   "curvyblocks.hud.auto_route": "按住 %s：自动绕过方块",
   "curvyblocks.hud.route_queued": "找到可放置路径后自动放置，%s：取消",
@@ -51,6 +52,8 @@
   "curvyblocks.configuration.maxCurvesPerChunk": "每区块最大曲线数",
   "curvyblocks.configuration.allowBlockOverlap": "允许曲线与方块重叠",
   "curvyblocks.configuration.solidCurves": "启用实体碰撞",
+  "curvyblocks.configuration.materialEffects": "继承原方块的移动与接触属性",
+  "curvyblocks.configuration.branchKnotScale": "圆形分支球节大小倍率",
   "curvyblocks.configuration.ownerOnlyRemoval": "仅放置者和管理员可以拆除",
   "curvyblocks.configuration.autoRouteSearchMargin": "自动拱起的最大偏移",
   "curvyblocks.configuration.autoRouteMaxCandidates": "自动拱形试算次数上限"

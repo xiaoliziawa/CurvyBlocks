@@ -278,7 +278,7 @@ public final class CurveEditor {
         }
         boolean free = minecraft.options.keySprint.isDown();
         if (!free && hit != null) {
-            target = CurveSnapping.onCurve(hit.curve(), hit.position());
+            target = CurveSnapping.onHit(hit);
             return;
         }
         if (!free && block.getType() == HitResult.Type.BLOCK) {
@@ -639,6 +639,9 @@ public final class CurveEditor {
                     CurveKeys.TOGGLE.getTranslatedKeyMessage()));
         } else if (hit != null) {
             lines.add(Component.translatable("curvyblocks.hud.remove"));
+        }
+        if (hit != null) {
+            lines.add(Component.translatable("curvyblocks.hud.pick", minecraft.options.keyPickItem.getTranslatedKeyMessage()));
         }
         if (pendingRequest != 0) {
             lines.add(Component.translatable("curvyblocks.hud.wait").withStyle(ChatFormatting.YELLOW));

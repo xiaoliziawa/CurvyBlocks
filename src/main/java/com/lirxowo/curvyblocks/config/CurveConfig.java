@@ -10,6 +10,8 @@ public final class CurveConfig {
     public static final ModConfigSpec.IntValue MAX_CURVES_PER_CHUNK;
     public static final ModConfigSpec.BooleanValue ALLOW_BLOCK_OVERLAP;
     public static final ModConfigSpec.BooleanValue SOLID_CURVES;
+    public static final ModConfigSpec.BooleanValue MATERIAL_EFFECTS;
+    public static final ModConfigSpec.DoubleValue BRANCH_KNOT_SCALE;
     public static final ModConfigSpec.BooleanValue OWNER_ONLY_REMOVAL;
     public static final ModConfigSpec.DoubleValue AUTO_ROUTE_SEARCH_MARGIN;
     public static final ModConfigSpec.IntValue AUTO_ROUTE_MAX_CANDIDATES;
@@ -28,6 +30,10 @@ public final class CurveConfig {
                 .define("allowBlockOverlap", false);
         SOLID_CURVES = builder.translation("curvyblocks.configuration.solidCurves")
                 .define("solidCurves", true);
+        MATERIAL_EFFECTS = builder.translation("curvyblocks.configuration.materialEffects")
+                .define("materialEffects", true);
+        BRANCH_KNOT_SCALE = builder.translation("curvyblocks.configuration.branchKnotScale")
+                .defineInRange("branchKnotScale", 1.15, 1.05, 2.0);
         OWNER_ONLY_REMOVAL = builder.translation("curvyblocks.configuration.ownerOnlyRemoval")
                 .define("ownerOnlyRemoval", false);
         AUTO_ROUTE_SEARCH_MARGIN = builder.translation("curvyblocks.configuration.autoRouteSearchMargin")

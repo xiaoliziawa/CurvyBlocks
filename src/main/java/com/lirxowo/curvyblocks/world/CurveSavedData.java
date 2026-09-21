@@ -26,7 +26,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.phys.Vec3;
 
 public final class CurveSavedData extends SavedData {
-    private static final int FORMAT_VERSION = 2;
+    private static final int FORMAT_VERSION = 3;
     private static final Factory<CurveSavedData> FACTORY = new Factory<>(CurveSavedData::new, CurveSavedData::load);
     private final CurveIndex index = new CurveIndex();
     private final Long2ObjectMap<StoredCurve> entries = new Long2ObjectOpenHashMap<>();
@@ -92,7 +92,7 @@ public final class CurveSavedData extends SavedData {
                 for (int p = 0; p < pointTags.size(); p++) {
                     CompoundTag point = pointTags.getCompound(p);
                     points.add(new CurvePoint(new Vec3(point.getDouble("x"), point.getDouble("y"), point.getDouble("z")),
-                            new Vec3(point.getDouble("nx"), point.getDouble("ny"), point.getDouble("nz"))));
+                            new Vec3(point.getDouble("nx"), point.getDouble("ny"), point.getDouble("nz")), point.getLong("parent")));
                 }
                 Curve curve = new Curve(id, state, points, saved.getInt("thickness"), CrossSection.values()[sectionId],
                         loadBends(saved.getList("bends", Tag.TAG_COMPOUND), points.size() - 1));
@@ -153,6 +153,9 @@ public final class CurveSavedData extends SavedData {
                 pointTag.putDouble("nx", point.normal().x);
                 pointTag.putDouble("ny", point.normal().y);
                 pointTag.putDouble("nz", point.normal().z);
+                if (point.parentId() > 0L) {
+                    pointTag.putLong("parent", point.parentId());
+                }
                 pointTags.add(pointTag);
             }
             saved.put("points", pointTags);

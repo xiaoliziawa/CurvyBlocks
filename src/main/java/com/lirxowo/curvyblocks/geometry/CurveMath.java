@@ -71,6 +71,23 @@ public final class CurveMath {
         return near;
     }
 
+    public static double raySphere(Vec3 origin, Vec3 direction, Vec3 center, double radius) {
+        double x = origin.x - center.x;
+        double y = origin.y - center.y;
+        double z = origin.z - center.z;
+        double outside = x * x + y * y + z * z - radius * radius;
+        if (outside <= 0.0) {
+            return 0.0;
+        }
+        double length = direction.lengthSqr();
+        double projection = x * direction.x + y * direction.y + z * direction.z;
+        double discriminant = projection * projection - length * outside;
+        if (length < CurveLimits.EPSILON || projection >= 0.0 || discriminant < 0.0) {
+            return Double.POSITIVE_INFINITY;
+        }
+        return (-projection - Math.sqrt(discriminant)) / length;
+    }
+
     public static double coordinate(Vec3 point, int axis) {
         return axis == 0 ? point.x : axis == 1 ? point.y : point.z;
     }

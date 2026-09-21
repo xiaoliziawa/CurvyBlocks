@@ -2,6 +2,7 @@ package com.lirxowo.curvyblocks;
 
 import com.lirxowo.curvyblocks.config.CurveConfig;
 import com.lirxowo.curvyblocks.network.CurveNetwork;
+import com.lirxowo.curvyblocks.physics.CurveBlockEffects;
 import com.lirxowo.curvyblocks.server.CurveServer;
 import com.mojang.logging.LogUtils;
 import net.neoforged.bus.api.IEventBus;
@@ -19,5 +20,6 @@ public final class CurvyBlocks {
         container.registerConfig(ModConfig.Type.SERVER, CurveConfig.SPEC);
         modBus.addListener(CurveNetwork::register);
         NeoForge.EVENT_BUS.register(CurveServer.class);
+        NeoForge.EVENT_BUS.register(CurveBlockEffects.class);
     }
 }

@@ -3,7 +3,18 @@
   "minVersion": "0.8.7",
   "package": "com.lirxowo.curvyblocks.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": ["EntityGetterMixin"],
+  "mixins": [
+    "EntityGetterMixin",
+    "BlockCollisionAccess",
+    "EntityMaterialMixin",
+    "LivingEntityMaterialMixin",
+    "ServerPlayerMaterialMixin",
+    "BlockStateMaterialMixin",
+    "BoatMaterialMixin",
+    "LevelMaterialMixin",
+    "BlockMaterialMixin"
+  ],
+  "client": ["client.MinecraftPickMixin"],
   "injectors": {
     "defaultRequire": 1
   },

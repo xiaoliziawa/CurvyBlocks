@@ -6,6 +6,7 @@ import com.lirxowo.curvyblocks.geometry.CurveBend;
 import com.lirxowo.curvyblocks.geometry.CurveGeometry;
 import com.lirxowo.curvyblocks.geometry.CurveLimits;
 import com.lirxowo.curvyblocks.geometry.CurvePoint;
+import com.lirxowo.curvyblocks.physics.CurvePhysics;
 import com.lirxowo.curvyblocks.world.Curve;
 import com.lirxowo.curvyblocks.world.CurveIndex;
 
@@ -73,7 +74,7 @@ public final class CurvePlacement {
         if (new CurveObstacles(level).firstIntersection(curve.geometry()) >= 0) {
             return PlacementResult.INTERSECTS_BLOCK;
         }
-        if (CurveConfig.SOLID_CURVES.get()) {
+        if (CurveConfig.SOLID_CURVES.get() && CurvePhysics.hasCollision(curve.material())) {
             for (Entity entity : level.getEntities((Entity) null, bounds, candidate -> candidate.isAlive() && !candidate.isSpectator())) {
                 if (!entity.isPickable()) {
                     continue;

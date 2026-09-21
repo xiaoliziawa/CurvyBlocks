@@ -56,6 +56,18 @@ final class BlockPalette {
         return surfaces[face];
     }
 
+    static int faceCount() {
+        return FACES.length;
+    }
+
+    static Direction direction(int face) {
+        return FACES[face];
+    }
+
+    void clearColors() {
+        colors.clear();
+    }
+
     boolean translucent() {
         return translucent;
     }

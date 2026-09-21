@@ -259,6 +259,7 @@ public final class CurvePayloads {
             buffer.writeFloat((float) point.normal().x);
             buffer.writeFloat((float) point.normal().y);
             buffer.writeFloat((float) point.normal().z);
+            buffer.writeVarLong(point.parentId());
         }
     }
 
@@ -272,7 +273,8 @@ public final class CurvePayloads {
         try {
             for (int i = 0; i < size; i++) {
                 Vec3 position = i == 0 ? origin : origin.add(buffer.readFloat(), buffer.readFloat(), buffer.readFloat());
-                points.add(new CurvePoint(position, new Vec3(buffer.readFloat(), buffer.readFloat(), buffer.readFloat())));
+                Vec3 normal = new Vec3(buffer.readFloat(), buffer.readFloat(), buffer.readFloat());
+                points.add(new CurvePoint(position, normal, buffer.readVarLong()));
             }
         } catch (IllegalArgumentException exception) {
             throw new DecoderException("Invalid curve coordinates", exception);

@@ -8,11 +8,14 @@ import com.lirxowo.curvyblocks.client.CurveEditor;
 import com.lirxowo.curvyblocks.geometry.CurvePoint;
 import com.lirxowo.curvyblocks.world.Curve;
 import com.lirxowo.curvyblocks.world.CurveIndex;
+import com.lirxowo.curvyblocks.world.CurveJoints;
+import com.lirxowo.curvyblocks.world.CurveKnot;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.client.Minecraft;
@@ -30,6 +33,7 @@ public final class CurveRenderer {
     private static final int ROUTING_COLOR = 0xFFFFBE55;
     private static final Comparator<CurveMesh> BACK_TO_FRONT = Comparator.comparingDouble(CurveMesh::cameraDistance).reversed();
     private final Long2ObjectMap<CurveMesh> meshes = new Long2ObjectOpenHashMap<>();
+    private final Long2ObjectMap<CurveMesh> previewKnots = new Long2ObjectOpenHashMap<>();
     private final LongSet dirtyLights = new LongOpenHashSet();
     private final List<CurveMesh> transparent = new ArrayList<>();
     private ByteBufferBuilder scratch;
@@ -38,6 +42,9 @@ public final class CurveRenderer {
     private CurveCursor cursor;
     private int lastPreviewRevision = -1;
     private int lastOutlineRevision = -1;
+    private long lastJointRevision = -1L;
+    private long lastOutlineJointRevision = -1L;
+    private List<CurveKnot> previewKnotShapes = List.of();
     private long selectedId = -1L;
     private int lightTick;
 
@@ -70,7 +77,7 @@ public final class CurveRenderer {
                     mesh.draw(event);
                 }
             } else if (editor.enabled() && Minecraft.getInstance().screen == null) {
-                drawEditor(event, editor);
+                drawEditor(event, editor, index);
             } else if (cursor != null) {
                 cursor.hide();
             }
@@ -90,21 +97,23 @@ public final class CurveRenderer {
         transparent.clear();
         int builds = 0;
         Vec3 camera = event.getCamera().getPosition();
+        CurveJoints joints = index.joints();
         for (Curve curve : index.all()) {
-            if (!event.getFrustum().isVisible(curve.geometry().bounds())) {
+            if (!event.getFrustum().isVisible(joints.bounds(curve))) {
                 continue;
             }
+            List<CurveKnot> knots = joints.forCurve(curve.id());
             CurveMesh mesh = meshes.get(curve.id());
             if (mesh == null) {
                 if (builds >= MESH_BUILDS_PER_FRAME) {
                     continue;
                 }
                 mesh = new CurveMesh(false);
-                mesh.update(curve, true, scratch());
+                mesh.update(curve, true, knots, scratch());
                 meshes.put(curve.id(), mesh);
                 builds++;
-            } else if (dirtyLights.contains(curve.id()) && builds < MESH_BUILDS_PER_FRAME) {
-                mesh.update(curve, true, scratch());
+            } else if ((dirtyLights.contains(curve.id()) || !mesh.knotsMatch(knots)) && builds < MESH_BUILDS_PER_FRAME) {
+                mesh.update(curve, true, knots, scratch());
                 dirtyLights.remove(curve.id());
                 builds++;
             }
@@ -118,17 +127,33 @@ public final class CurveRenderer {
         transparent.sort(BACK_TO_FRONT);
     }
 
-    private void drawEditor(RenderLevelStageEvent event, CurveEditor editor) {
+    private void drawEditor(RenderLevelStageEvent event, CurveEditor editor, CurveIndex index) {
         Curve draft = editor.preview();
+        CurveJoints joints = index.joints();
+        long jointRevision = joints.revision();
         if (draft != null) {
             if (preview == null) {
                 preview = new CurveMesh(true);
             }
-            if (lastPreviewRevision != editor.previewRevision()) {
+            boolean changed = lastPreviewRevision != editor.previewRevision();
+            if (changed) {
                 preview.update(draft, editor.valid(), scratch());
                 lastPreviewRevision = editor.previewRevision();
             }
-            preview.draw(event);
+            if (changed || lastJointRevision != jointRevision) {
+                updatePreviewKnots(index, draft, editor.valid());
+                lastJointRevision = jointRevision;
+            }
+            preview.drawPreviewDepth(event);
+            for (CurveMesh knot : previewKnots.values()) {
+                knot.drawPreviewDepth(event);
+            }
+            preview.drawPreviewColor(event);
+            for (CurveMesh knot : previewKnots.values()) {
+                knot.drawPreviewColor(event);
+            }
+        } else {
+            clearPreviewKnots();
         }
         Curve selected = draft != null ? draft : editor.hit() != null ? editor.hit().curve() : null;
         int color = editor.routing() ? ROUTING_COLOR : draft == null && selected != null ? SELECTED_COLOR
@@ -137,10 +162,12 @@ public final class CurveRenderer {
             if (outline == null) {
                 outline = new CurveOutline();
             }
-            if (lastOutlineRevision != editor.previewRevision() || selectedId != selected.id()) {
-                outline.update(selected, color, scratch());
+            if (lastOutlineRevision != editor.previewRevision() || selectedId != selected.id()
+                    || lastOutlineJointRevision != jointRevision) {
+                outline.update(selected, draft != null ? previewKnotShapes : joints.forCurve(selected.id()), color, scratch());
                 selectedId = selected.id();
                 lastOutlineRevision = editor.previewRevision();
+                lastOutlineJointRevision = jointRevision;
             }
             outline.draw(event);
         }
@@ -157,6 +184,44 @@ public final class CurveRenderer {
             cursor = new CurveCursor(scratch());
         }
         cursor.draw(event, target, nodes, color);
+    }
+
+    private void updatePreviewKnots(CurveIndex index, Curve draft, boolean valid) {
+        Long2ObjectMap<List<CurveKnot>> groups = index.joints().preview(draft);
+        List<CurveKnot> shapes = new ArrayList<>();
+        for (Long2ObjectMap.Entry<List<CurveKnot>> entry : groups.long2ObjectEntrySet()) {
+            long id = entry.getLongKey();
+            Curve parent = index.get(id);
+            CurveMesh mesh = previewKnots.get(id);
+            if (mesh == null) {
+                mesh = new CurveMesh(true);
+                previewKnots.put(id, mesh);
+            }
+            if (!mesh.previewKnotsMatch(parent, valid, entry.getValue())) {
+                mesh.updateKnots(parent, valid, entry.getValue(), scratch());
+            }
+            shapes.addAll(entry.getValue());
+        }
+        LongIterator iterator = previewKnots.keySet().iterator();
+        while (iterator.hasNext()) {
+            long id = iterator.nextLong();
+            if (!groups.containsKey(id)) {
+                previewKnots.get(id).close();
+                iterator.remove();
+            }
+        }
+        previewKnotShapes = List.copyOf(shapes);
+    }
+
+    private void clearPreviewKnots() {
+        if (previewKnots.isEmpty()) {
+            return;
+        }
+        for (CurveMesh mesh : previewKnots.values()) {
+            mesh.close();
+        }
+        previewKnots.clear();
+        previewKnotShapes = List.of();
     }
 
     public void tick() {
@@ -185,6 +250,7 @@ public final class CurveRenderer {
         meshes.clear();
         transparent.clear();
         dirtyLights.clear();
+        clearPreviewKnots();
         if (preview != null) {
             preview.close();
             preview = null;
@@ -203,6 +269,8 @@ public final class CurveRenderer {
         }
         lastPreviewRevision = -1;
         lastOutlineRevision = -1;
+        lastJointRevision = -1L;
+        lastOutlineJointRevision = -1L;
         selectedId = -1;
     }
 }

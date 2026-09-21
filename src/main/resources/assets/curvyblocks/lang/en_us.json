@@ -19,6 +19,7 @@
   "curvyblocks.hud.cost": "Length %s m · Cost %s · Available %s",
   "curvyblocks.hud.free": "Hold %s: place in air · Alt + scroll: distance · %s: toggle",
   "curvyblocks.hud.remove": "Left-click: remove this curve",
+  "curvyblocks.hud.pick": "%s: pick the curve's block material",
   "curvyblocks.hud.wait": "Waiting for the server…",
   "curvyblocks.hud.auto_route": "Hold %s: route around blocks",
   "curvyblocks.hud.route_queued": "Place when a clear route is found · %s: cancel",
@@ -51,6 +52,8 @@
   "curvyblocks.configuration.maxCurvesPerChunk": "Maximum curves per chunk",
   "curvyblocks.configuration.allowBlockOverlap": "Allow curves to overlap blocks",
   "curvyblocks.configuration.solidCurves": "Enable entity collisions",
+  "curvyblocks.configuration.materialEffects": "Inherit block movement and contact properties",
+  "curvyblocks.configuration.branchKnotScale": "Round branch knot size multiplier",
   "curvyblocks.configuration.ownerOnlyRemoval": "Only owners and operators may remove curves",
   "curvyblocks.configuration.autoRouteSearchMargin": "Maximum automatic arch offset",
   "curvyblocks.configuration.autoRouteMaxCandidates": "Automatic arch evaluation limit"

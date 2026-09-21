@@ -6,6 +6,7 @@ import com.lirxowo.curvyblocks.geometry.CrossSection;
 import com.lirxowo.curvyblocks.geometry.CurveGeometry;
 import com.lirxowo.curvyblocks.geometry.CurveLimits;
 import com.lirxowo.curvyblocks.world.Curve;
+import com.lirxowo.curvyblocks.world.CurveKnot;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
@@ -17,6 +18,8 @@ import net.minecraft.client.renderer.Sheets;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
@@ -29,17 +32,20 @@ final class CurveMesh implements AutoCloseable {
     private static final int PREVIEW_INVALID = 0xFF6666;
     private static final RenderType SOLID = RenderType.entityCutoutNoCull(TextureAtlas.LOCATION_BLOCKS);
     private static final RenderType TRANSLUCENT = Sheets.translucentCullBlockSheet();
-    private static final RenderType PREVIEW = RenderType.entityTranslucent(TextureAtlas.LOCATION_BLOCKS);
+    private static final int[] NO_LIGHTS = new int[0];
     private final GpuMesh mesh;
     private final boolean preview;
     private Curve curve;
     private BlockPalette palette;
     private int[] lights;
+    private int[] knotLights;
+    private List<CurveKnot> knots = List.of();
     private int tint = 0xFFFFFF;
     private int alpha = 255;
     private double[] horizontal;
     private double[] vertical;
     private Vec3 center;
+    private Vec3 origin;
     private double cameraDistance;
 
     CurveMesh(boolean preview) {
@@ -48,27 +54,48 @@ final class CurveMesh implements AutoCloseable {
     }
 
     void update(Curve curve, boolean valid, ByteBufferBuilder scratch) {
+        update(curve, valid, List.of(), scratch);
+    }
+
+    private void prepare(Curve curve, boolean valid, List<CurveKnot> knots, boolean knotsOnly) {
+        if (this.curve == null || this.curve.material() != curve.material()) {
+            palette = new BlockPalette(curve.material());
+        } else {
+            palette.clearColors();
+        }
         this.curve = curve;
-        center = curve.geometry().bounds().getCenter();
-        palette = new BlockPalette(curve.material());
+        this.knots = List.copyOf(knots);
+        origin = curve.points().getFirst().position();
+        AABB bounds = knotsOnly ? knots.getFirst().bounds() : curve.geometry().bounds();
+        for (CurveKnot knot : knots) {
+            bounds = bounds.minmax(knot.bounds());
+        }
+        center = bounds.getCenter();
         tint = preview ? valid ? PREVIEW_VALID : PREVIEW_INVALID : 0xFFFFFF;
         alpha = preview ? PREVIEW_ALPHA : 255;
         List<CurveGeometry.Sample> samples = curve.geometry().samples();
-        lights = new int[samples.size()];
-        for (int i = 0; i < samples.size(); i++) {
+        lights = knotsOnly ? NO_LIGHTS : new int[samples.size()];
+        for (int i = 0; i < lights.length; i++) {
             lights[i] = light(samples.get(i));
         }
+        knotLights = knots.isEmpty() ? NO_LIGHTS : new int[knots.size()];
+        for (int i = 0; i < knotLights.length; i++) {
+            knotLights[i] = light(knots.get(i).lightPosition());
+        }
+    }
+
+    void update(Curve curve, boolean valid, List<CurveKnot> knots, ByteBufferBuilder scratch) {
+        prepare(curve, valid, knots, false);
+        List<CurveGeometry.Sample> samples = curve.geometry().samples();
         int sides = curve.section() == CrossSection.ROUND ? ROUND_SIDES : SQUARE_SIDES;
         horizontal = new double[sides + 1];
         vertical = new double[sides + 1];
+        double radius = curve.section().outerRadius(curve.diameter());
+        double shift = curve.section() == CrossSection.SQUARE ? -Math.PI / 4.0 : 0.0;
         for (int side = 0; side <= sides; side++) {
-            double angle = side * Math.TAU / sides;
-            if (curve.section() == CrossSection.SQUARE) {
-                angle -= Math.PI / 4.0;
-            }
-            double scale = curve.diameter() * 0.5 * (curve.section() == CrossSection.SQUARE ? Math.sqrt(2.0) : 1.0);
-            horizontal[side] = Math.cos(angle) * scale;
-            vertical[side] = Math.sin(angle) * scale;
+            double angle = side * Math.TAU / sides + shift;
+            horizontal[side] = Math.cos(angle) * radius;
+            vertical[side] = Math.sin(angle) * radius;
         }
         BufferBuilder builder = new BufferBuilder(scratch, VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.NEW_ENTITY);
         for (int i = 1; i < samples.size(); i++) {
@@ -88,8 +115,43 @@ final class CurveMesh implements AutoCloseable {
         }
         cap(builder, samples.getFirst(), false, lights[0]);
         cap(builder, samples.getLast(), true, lights[lights.length - 1]);
-        mesh.upload(builder.buildOrThrow(), curve.points().getFirst().position());
+        appendKnots(builder);
+        mesh.upload(builder.buildOrThrow(), origin);
         scratch.clear();
+    }
+
+    void updateKnots(Curve parent, boolean valid, List<CurveKnot> knots, ByteBufferBuilder scratch) {
+        prepare(parent, valid, knots, true);
+        BufferBuilder builder = new BufferBuilder(scratch, VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.NEW_ENTITY);
+        appendKnots(builder);
+        mesh.upload(builder.buildOrThrow(), origin);
+        scratch.clear();
+    }
+
+    private void appendKnots(BufferBuilder builder) {
+        for (int i = 0; i < knots.size(); i++) {
+            CurveKnot knot = knots.get(i);
+            Vec3 position = knot.position();
+            double radius = knot.radius();
+            int light = knotLights[i];
+            for (int face = 0; face < BlockPalette.faceCount(); face++) {
+                TextureAtlasSprite sprite = palette.surface(face).sprite();
+                int color = palette.color(face, knot.lightPosition());
+                for (KnotSphere.Vertex sample : KnotSphere.face(face)) {
+                    Vec3 normal = sample.normal();
+                    vertex(builder, position.x + normal.x * radius, position.y + normal.y * radius,
+                            position.z + normal.z * radius, normal, sprite, sample.u(), sample.v(), color, light);
+                }
+            }
+        }
+    }
+
+    boolean knotsMatch(List<CurveKnot> next) {
+        return knots.equals(next);
+    }
+
+    boolean previewKnotsMatch(Curve parent, boolean valid, List<CurveKnot> next) {
+        return curve == parent && tint == (valid ? PREVIEW_VALID : PREVIEW_INVALID) && knotsMatch(next) && !lightingChanged();
     }
 
     private void strip(BufferBuilder builder, CurveGeometry.Sample start, CurveGeometry.Sample end,
@@ -154,11 +216,15 @@ final class CurveMesh implements AutoCloseable {
 
     private void vertex(BufferBuilder builder, Vec3 position, Vec3 normal, TextureAtlasSprite sprite,
                         float u, float v, int color, int light) {
-        Vec3 origin = curve.points().getFirst().position();
+        vertex(builder, position.x, position.y, position.z, normal, sprite, u, v, color, light);
+    }
+
+    private void vertex(BufferBuilder builder, double x, double y, double z, Vec3 normal, TextureAtlasSprite sprite,
+                        float u, float v, int color, int light) {
         int red = (color >> 16 & 255) * (tint >> 16 & 255) / 255;
         int green = (color >> 8 & 255) * (tint >> 8 & 255) / 255;
         int blue = (color & 255) * (tint & 255) / 255;
-        builder.addVertex((float) (position.x - origin.x), (float) (position.y - origin.y), (float) (position.z - origin.z))
+        builder.addVertex((float) (x - origin.x), (float) (y - origin.y), (float) (z - origin.z))
                 .setColor(red, green, blue, alpha)
                 .setUv(sprite.getU(Math.clamp(u, TEXTURE_INSET, 1.0F - TEXTURE_INSET)),
                         sprite.getV(Math.clamp(v, TEXTURE_INSET, 1.0F - TEXTURE_INSET)))
@@ -168,8 +234,13 @@ final class CurveMesh implements AutoCloseable {
 
     boolean lightingChanged() {
         List<CurveGeometry.Sample> samples = curve.geometry().samples();
-        for (int i = 0; i < samples.size(); i++) {
+        for (int i = 0; i < lights.length; i++) {
             if (lights[i] != light(samples.get(i))) {
+                return true;
+            }
+        }
+        for (int i = 0; i < knotLights.length; i++) {
+            if (knotLights[i] != light(knots.get(i).lightPosition())) {
                 return true;
             }
         }
@@ -177,7 +248,11 @@ final class CurveMesh implements AutoCloseable {
     }
 
     private int light(CurveGeometry.Sample sample) {
-        return LevelRenderer.getLightColor(Minecraft.getInstance().level, curve.material(), sample.lightPosition());
+        return light(sample.lightPosition());
+    }
+
+    private int light(BlockPos position) {
+        return LevelRenderer.getLightColor(Minecraft.getInstance().level, curve.material(), position);
     }
 
     boolean translucent() {
@@ -197,7 +272,20 @@ final class CurveMesh implements AutoCloseable {
     }
 
     void draw(RenderLevelStageEvent event) {
-        mesh.draw(preview ? PREVIEW : translucent() ? TRANSLUCENT : SOLID, event);
+        if (preview) {
+            drawPreviewDepth(event);
+            drawPreviewColor(event);
+        } else {
+            mesh.draw(translucent() ? TRANSLUCENT : SOLID, event);
+        }
+    }
+
+    void drawPreviewDepth(RenderLevelStageEvent event) {
+        mesh.draw(CurveRenderTypes.PREVIEW_DEPTH, event);
+    }
+
+    void drawPreviewColor(RenderLevelStageEvent event) {
+        mesh.draw(CurveRenderTypes.PREVIEW_COLOR, event);
     }
 
     @Override

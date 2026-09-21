@@ -96,12 +96,16 @@ public final class CurveServer {
             return;
         }
         ServerLevel level = player.serverLevel();
+        CurveSavedData data = CurveSavedData.get(level);
+        if (!data.index().joints().validAnchors(draft.points())) {
+            respond(context, payload.requestId(), PlacementResult.NOT_FOUND, 0);
+            return;
+        }
         PlacementResult validation = CurvePlacement.validate(level, player, draft);
         if (validation != PlacementResult.OK) {
             respond(context, payload.requestId(), validation, 0);
             return;
         }
-        CurveSavedData data = CurveSavedData.get(level);
         if (!withinChunkLimit(data.index(), draft)) {
             respond(context, payload.requestId(), PlacementResult.CHUNK_LIMIT, 0);
             return;

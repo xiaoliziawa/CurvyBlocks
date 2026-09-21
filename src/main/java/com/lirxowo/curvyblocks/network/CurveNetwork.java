@@ -19,7 +19,7 @@ public final class CurveNetwork {
     }
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar("3");
+        PayloadRegistrar registrar = event.registrar("4");
         registrar.playToServer(CurvePayloads.Place.TYPE, CurvePayloads.Place.CODEC, CurveServer::place);
         registrar.playToServer(CurvePayloads.Remove.TYPE, CurvePayloads.Remove.CODEC, CurveServer::remove);
         registrar.playToServer(CurvePayloads.Mode.TYPE, CurvePayloads.Mode.CODEC, CurveServer::mode);

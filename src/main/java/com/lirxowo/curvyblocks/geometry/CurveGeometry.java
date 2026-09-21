@@ -170,6 +170,21 @@ public final class CurveGeometry {
         return samples;
     }
 
+    public boolean containsCenterline(Vec3 position, double tolerance) {
+        if (position.x < bounds.minX - tolerance || position.x > bounds.maxX + tolerance
+                || position.y < bounds.minY - tolerance || position.y > bounds.maxY + tolerance
+                || position.z < bounds.minZ - tolerance || position.z > bounds.maxZ + tolerance) {
+            return false;
+        }
+        double maximum = tolerance * tolerance;
+        for (int i = 1; i < samples.size(); i++) {
+            if (CurveMath.pointSegmentDistanceSquared(position, samples.get(i - 1).position(), samples.get(i).position()) <= maximum) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public Sample project(Vec3 position) {
         int closest = 1;
         double closestDistance = Double.POSITIVE_INFINITY;
