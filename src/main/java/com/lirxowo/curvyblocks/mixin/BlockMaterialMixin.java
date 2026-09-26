@@ -17,7 +17,7 @@ public abstract class BlockMaterialMixin {
         CurveBlockEffects.rejectWorldMutation();
     }
 
-    @Inject(method = {"dropResources", "popResource", "popResourceFromFace"}, at = @At("HEAD"))
+    @Inject(method = {"dropResources*", "popResource*", "popResourceFromFace"}, at = @At("HEAD"))
     private static void curvyblocks$protectDrops(CallbackInfo callback) {
         CurveBlockEffects.rejectWorldMutation();
     }

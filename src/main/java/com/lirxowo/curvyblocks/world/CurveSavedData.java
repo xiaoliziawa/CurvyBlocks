@@ -24,6 +24,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.NotNull;
 
 public final class CurveSavedData extends SavedData {
     private static final int FORMAT_VERSION = 3;
@@ -130,7 +131,7 @@ public final class CurveSavedData extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    public @NotNull CompoundTag save(CompoundTag tag, HolderLookup.@NotNull Provider registries) {
         tag.putInt("format", FORMAT_VERSION);
         tag.putLong("nextId", nextId);
         ListTag savedCurves = new ListTag();
@@ -144,42 +145,52 @@ public final class CurveSavedData extends SavedData {
             saved.put("state", NbtUtils.writeBlockState(curve.material()));
             saved.putInt("thickness", curve.thickness());
             saved.putByte("section", (byte) curve.section().ordinal());
-            ListTag pointTags = new ListTag();
-            for (CurvePoint point : curve.points()) {
-                CompoundTag pointTag = new CompoundTag();
-                pointTag.putDouble("x", point.position().x);
-                pointTag.putDouble("y", point.position().y);
-                pointTag.putDouble("z", point.position().z);
-                pointTag.putDouble("nx", point.normal().x);
-                pointTag.putDouble("ny", point.normal().y);
-                pointTag.putDouble("nz", point.normal().z);
-                if (point.parentId() > 0L) {
-                    pointTag.putLong("parent", point.parentId());
-                }
-                pointTags.add(pointTag);
-            }
+            ListTag pointTags = createPointTags(curve);
             saved.put("points", pointTags);
             if (!curve.bends().isEmpty()) {
-                ListTag bendTags = new ListTag();
-                for (int span = 0; span < curve.bends().size(); span++) {
-                    CurveBend bend = curve.bends().get(span);
-                    if (bend.isEmpty()) {
-                        continue;
-                    }
-                    CompoundTag bendTag = new CompoundTag();
-                    bendTag.putInt("span", span);
-                    bendTag.putDouble("x", bend.offset().x);
-                    bendTag.putDouble("y", bend.offset().y);
-                    bendTag.putDouble("z", bend.offset().z);
-                    bendTag.putDouble("center", bend.center());
-                    bendTags.add(bendTag);
-                }
+                ListTag bendTags = createBendTags(curve);
                 saved.put("bends", bendTags);
             }
             savedCurves.add(saved);
         }
         tag.put("curves", savedCurves);
         return tag;
+    }
+
+    private static @NotNull ListTag createBendTags(Curve curve) {
+        ListTag bendTags = new ListTag();
+        for (int span = 0; span < curve.bends().size(); span++) {
+            CurveBend bend = curve.bends().get(span);
+            if (bend.isEmpty()) {
+                continue;
+            }
+            CompoundTag bendTag = new CompoundTag();
+            bendTag.putInt("span", span);
+            bendTag.putDouble("x", bend.offset().x);
+            bendTag.putDouble("y", bend.offset().y);
+            bendTag.putDouble("z", bend.offset().z);
+            bendTag.putDouble("center", bend.center());
+            bendTags.add(bendTag);
+        }
+        return bendTags;
+    }
+
+    private static @NotNull ListTag createPointTags(Curve curve) {
+        ListTag pointTags = new ListTag();
+        for (CurvePoint point : curve.points()) {
+            CompoundTag pointTag = new CompoundTag();
+            pointTag.putDouble("x", point.position().x);
+            pointTag.putDouble("y", point.position().y);
+            pointTag.putDouble("z", point.position().z);
+            pointTag.putDouble("nx", point.normal().x);
+            pointTag.putDouble("ny", point.normal().y);
+            pointTag.putDouble("nz", point.normal().z);
+            if (point.parentId() > 0L) {
+                pointTag.putLong("parent", point.parentId());
+            }
+            pointTags.add(pointTag);
+        }
+        return pointTags;
     }
 
     public record StoredCurve(Curve curve, UUID owner, ItemStack material, int paidCost) {

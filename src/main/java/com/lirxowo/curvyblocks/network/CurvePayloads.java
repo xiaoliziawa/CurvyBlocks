@@ -19,6 +19,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.NotNull;
 
 public final class CurvePayloads {
     public static final int MAX_BATCH_SIZE = 32;
@@ -55,7 +56,7 @@ public final class CurvePayloads {
         }
 
         @Override
-        public Type<Place> type() {
+        public @NotNull Type<Place> type() {
             return TYPE;
         }
     }
@@ -68,7 +69,7 @@ public final class CurvePayloads {
         }, buffer -> new Remove(buffer.readVarInt(), buffer.readVarLong()));
 
         @Override
-        public Type<Remove> type() {
+        public @NotNull Type<Remove> type() {
             return TYPE;
         }
     }
@@ -99,7 +100,7 @@ public final class CurvePayloads {
         });
 
         @Override
-        public Type<ChunkSync> type() {
+        public @NotNull Type<ChunkSync> type() {
             return TYPE;
         }
     }
@@ -112,7 +113,7 @@ public final class CurvePayloads {
         }, buffer -> new ForgetChunk(buffer.readResourceLocation(), buffer.readLong()));
 
         @Override
-        public Type<ForgetChunk> type() {
+        public @NotNull Type<ForgetChunk> type() {
             return TYPE;
         }
     }
@@ -125,7 +126,7 @@ public final class CurvePayloads {
         }, buffer -> new Added(buffer.readResourceLocation(), readCurve(buffer)));
 
         @Override
-        public Type<Added> type() {
+        public @NotNull Type<Added> type() {
             return TYPE;
         }
     }
@@ -138,7 +139,7 @@ public final class CurvePayloads {
         }, buffer -> new Removed(buffer.readResourceLocation(), buffer.readVarLong()));
 
         @Override
-        public Type<Removed> type() {
+        public @NotNull Type<Removed> type() {
             return TYPE;
         }
     }
@@ -152,7 +153,7 @@ public final class CurvePayloads {
         }, buffer -> new Response(buffer.readVarInt(), buffer.readEnum(PlacementResult.class), buffer.readVarInt()));
 
         @Override
-        public Type<Response> type() {
+        public @NotNull Type<Response> type() {
             return TYPE;
         }
     }
@@ -163,7 +164,7 @@ public final class CurvePayloads {
                 (buffer, value) -> buffer.writeBoolean(value.enabled), buffer -> new Mode(buffer.readBoolean()));
 
         @Override
-        public Type<Mode> type() {
+        public @NotNull Type<Mode> type() {
             return TYPE;
         }
     }
@@ -174,7 +175,7 @@ public final class CurvePayloads {
                 (buffer, value) -> buffer.writeBoolean(value.captured), buffer -> new UseCapture(buffer.readBoolean()));
 
         @Override
-        public Type<UseCapture> type() {
+        public @NotNull Type<UseCapture> type() {
             return TYPE;
         }
     }

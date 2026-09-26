@@ -32,7 +32,7 @@ public final class CurveHud {
         }
         Font font = Minecraft.getInstance().font;
         float scale = CurveClientConfig.HUD_SCALE.get().floatValue();
-        int available = Math.max(1, Math.min(MAX_WIDTH, (int) ((graphics.guiWidth() - MARGIN * 2) / scale) - PADDING * 2));
+        int available = Math.clamp((int) ((graphics.guiWidth() - MARGIN * 2) / scale) - PADDING * 2, 1, MAX_WIDTH);
         if (text != previous || available != previousWidth) {
             lines.clear();
             width = 0;

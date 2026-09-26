@@ -4,7 +4,6 @@ public final class CurveLimits {
     public static final int MAX_POINTS = 32;
     public static final int MIN_THICKNESS = 2;
     public static final int MAX_THICKNESS = 16;
-    public static final int DEFAULT_THICKNESS = 8;
     public static final double UNITS_PER_BLOCK = 16.0;
     public static final double MIN_POINT_DISTANCE = 1.0 / UNITS_PER_BLOCK;
     public static final double MAX_COORDINATE = 30_000_000.0;

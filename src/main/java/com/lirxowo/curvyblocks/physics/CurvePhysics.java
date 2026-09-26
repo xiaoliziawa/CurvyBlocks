@@ -142,15 +142,14 @@ public final class CurvePhysics {
         AABB bounds = entity.getBoundingBox();
         contacts.setApplyingEffects(true);
         try {
-            for (int i = 0; i < touching.size(); i++) {
+            for (CurveContact curveContact : touching) {
                 if (!entity.isAlive() || entity.level() != level || entity.getBoundingBox() != bounds) {
                     break;
                 }
-                CurveContact contact = touching.get(i);
-                if (contacts.beginInsideEffect(contact.curve().id(), entity.tickCount)
-                        && CurveBlockEffects.apply(Effect.INSIDE, contact, entity, 0.0F)
+                if (contacts.beginInsideEffect(curveContact.curve().id(), entity.tickCount)
+                        && CurveBlockEffects.apply(Effect.INSIDE, curveContact, entity, 0.0F)
                         && entity.isAlive() && entity.level() == level && entity.getBoundingBox() == bounds) {
-                    ((CurveEntityAccess) entity).curvyblocks$onInsideBlock(contact.material());
+                    ((CurveEntityAccess) entity).curvyblocks$onInsideBlock(curveContact.material());
                 }
             }
         } finally {

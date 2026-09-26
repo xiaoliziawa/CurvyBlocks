@@ -85,9 +85,7 @@ public final class CurvePicking {
             BlockHitResult target = new BlockHitResult(hit.position(), Direction.getNearest(normal.x, normal.y, normal.z), position, false);
             try {
                 ItemStack result = state.getCloneItemStack(target, minecraft.level, position, minecraft.player);
-                if (result != null) {
-                    return result.copy();
-                }
+                return result.copy();
             } catch (RuntimeException exception) {
                 FAILED_CLONES.add(block);
                 CurvyBlocks.LOGGER.warn("Using the block item for curved material {} because its pick callback failed",

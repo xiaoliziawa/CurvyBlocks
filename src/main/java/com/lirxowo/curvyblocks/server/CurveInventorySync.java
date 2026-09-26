@@ -20,7 +20,7 @@ public final class CurveInventorySync {
     }
 
     public static void restoreHand(Player player, InteractionHand hand) {
-        if (player instanceof ServerPlayer serverPlayer && serverPlayer.connection != null) {
+        if (player instanceof ServerPlayer serverPlayer) {
             Inventory inventory = player.getInventory();
             int slot = hand == InteractionHand.OFF_HAND ? Inventory.SLOT_OFFHAND : inventory.selected;
             serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(ClientboundContainerSetSlotPacket.PLAYER_INVENTORY,
