@@ -1,32 +1,33 @@
 # Curvy Blocks
 
-Minecraft **1.21.1 / NeoForge 21.1.251 / Java 21** 的弯曲方块模组
+English | [简体中文](README_CN.md)
 
-副手持任意 `方块物品`，即可用该方块的材质放置平滑曲线。
+A curved block mod for Minecraft **1.21.1 / NeoForge 21.1.251 / Java 21**.
 
-## 操作
+Hold any `block item` in your offhand to place smooth curves using that block's texture.
 
-默认开启弯曲放置模式。把方块放进副手，右键选择起点，移动准星后再次右键完成。
+## Controls
 
-选点使用始终朝向视角的圆环，每个渲染帧跟随相机位置更新，并对网格吸附的小幅跳动做平滑过渡。已确认的节点显示为较小的圆环。
+Curved placement mode is enabled by default. Put a block in your offhand, right-click to set the start point, then move your crosshair and right-click again to finish.
 
-曲线预览使用连续的半透明外表面，保留材质贴图和放置状态颜色。绘制时先确定最近可见表面的深度，再为该表面着色，避免前后表面按采样段重复混色而产生切片状条带。
+The target point is shown as a ring that always faces the camera. It follows the camera position every rendered frame and smooths out the small jumps caused by grid snapping. Confirmed nodes are shown as smaller rings.
 
-| 操作 | 功能 |
+The curve preview is drawn as a continuous translucent outer surface that keeps the material texture and the placement status color. Rendering first resolves the depth of the nearest visible surface and then shades only that surface, so front and back faces are not blended repeatedly per sample segment, which would otherwise produce sliced banding.
+
+| Input | Action |
 | --- | --- |
-| 右键 | 选择起点／确认放置 |
-| 潜行键＋右键 | 添加中间节点，继续编辑 |
-| Enter | 完成当前预览 |
-| 左键／Backspace（编辑中） | 撤销最后一个节点 |
-| X | 取消当前草稿 |
-| 左键瞄准已放置曲线 | 拆除整条曲线 |
-| 鼠标中键／原版「选取方块」按键 | 选取准星命中曲线的原方块材质 |
-| R | 切换 1/8、1/4、1/2、1 格粗细 |
-| V | 切换圆形／方形截面 |
-| G | 切换关闭、1/16、1/4、1/2 格吸附 |
-| 按住疾跑键 | 忽略方块和曲线，在空中选点 |
-| 按住左 Alt | 为受阻的曲线自动寻找绕障路径 |
-| Alt＋滚轮 | 调整空中选点距离，受原版交互距离限制 |
-| B | 开关弯曲模式；关闭后恢复普通副手操作 |
-| 按住 H | 在左下提示框显示完整操作说明 |
-
+| Right-click | Set the start point / confirm placement |
+| Sneak + right-click | Add an intermediate node and keep editing |
+| Enter | Finish the current preview |
+| Left-click / Backspace (while editing) | Undo the last node |
+| X | Cancel the current draft |
+| Left-click a placed curve | Remove the entire curve |
+| Middle mouse / vanilla "Pick Block" key | Pick the source block material of the curve under the crosshair |
+| R | Cycle thickness: 1/8, 1/4, 1/2, 1 block |
+| V | Toggle round / square cross-section |
+| G | Cycle grid snapping: off, 1/16, 1/4, 1/2 block |
+| Hold Sprint | Ignore blocks and curves and place points in mid-air |
+| Hold Left Alt | Automatically find a path around obstacles for a blocked curve |
+| Alt + scroll | Adjust the mid-air point distance, limited by vanilla interaction range |
+| B | Toggle curved placement mode; when off, the offhand behaves normally |
+| Hold H | Show the full controls in the hint box at the bottom left |
