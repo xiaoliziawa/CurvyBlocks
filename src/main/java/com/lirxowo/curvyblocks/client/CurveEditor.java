@@ -25,6 +25,7 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
@@ -82,12 +83,14 @@ public final class CurveEditor {
     private boolean pendingRemoval;
     private int cost;
     private List<Component> hud = List.of();
+    private boolean hudFaint;
     private int hudRevision = -1;
     private int hudPending;
     private int hudAvailable;
     private int hudCost;
     private boolean hudBuild;
     private boolean hudHit;
+    private boolean hudHelp;
     private ItemStack hudMaterial = ItemStack.EMPTY;
 
     public CurveEditor(ClientCurves curves) {
@@ -105,6 +108,7 @@ public final class CurveEditor {
         useConsumed = false;
         attackConsumed = false;
         hud = List.of();
+        hudFaint = false;
         hudRevision = -1;
         hudMaterial = ItemStack.EMPTY;
         clientTick = 0;
@@ -144,6 +148,10 @@ public final class CurveEditor {
 
     public List<Component> hud() {
         return hud;
+    }
+
+    public boolean hudFaint() {
+        return hudFaint;
     }
 
     public void tick() {
@@ -601,10 +609,11 @@ public final class CurveEditor {
     private void updateHud() {
         Minecraft minecraft = Minecraft.getInstance();
         boolean build = canBuild();
+        boolean help = CurveKeys.HELP.isDown();
         ItemStack held = minecraft.player.getOffhandItem();
         int available = preview == null ? 0 : CurveMaterials.count(minecraft.player, material);
         if (hudRevision == previewRevision && hudPending == pendingRequest && hudAvailable == available
-                && hudCost == cost && hudBuild == build && hudHit == (hit != null)
+                && hudCost == cost && hudBuild == build && hudHit == (hit != null) && hudHelp == help
                 && ItemStack.isSameItemSameComponents(hudMaterial, held)) {
             return;
         }
@@ -614,34 +623,74 @@ public final class CurveEditor {
         hudCost = cost;
         hudBuild = build;
         hudHit = hit != null;
+        hudHelp = help;
         if (!ItemStack.isSameItemSameComponents(hudMaterial, held)) {
             hudMaterial = held.copyWithCount(1);
         }
+        hudFaint = false;
         if (!build && points.isEmpty() && hit == null) {
             hud = List.of();
-            return;
+        } else if (help) {
+            hud = helpLines(minecraft, build, held);
+        } else if (!points.isEmpty()) {
+            hud = draftLines(minecraft, held, available);
+        } else if (pendingRequest != 0) {
+            hud = List.of(Component.translatable("curvyblocks.hud.wait").withStyle(ChatFormatting.YELLOW));
+        } else {
+            hudFaint = true;
+            hud = List.of(hit != null
+                    ? Component.translatable("curvyblocks.hud.idle_curve", minecraft.options.keyPickItem.getTranslatedKeyMessage(),
+                    CurveKeys.HELP.getTranslatedKeyMessage())
+                    : Component.translatable("curvyblocks.hud.idle", CurveKeys.HELP.getTranslatedKeyMessage()));
         }
+    }
+
+    private List<Component> draftLines(Minecraft minecraft, ItemStack held, int available) {
+        List<Component> lines = new ArrayList<>();
+        lines.add(statusLine(held));
+        if (preview != null) {
+            MutableComponent costLine = Component.translatable("curvyblocks.hud.cost", format(preview.geometry().length()), cost, available);
+            lines.add(available < cost ? costLine.withStyle(ChatFormatting.RED) : costLine);
+        }
+        lines.add(draftStateLine(minecraft));
+        return List.copyOf(lines);
+    }
+
+    private Component draftStateLine(Minecraft minecraft) {
+        if (pendingRequest != 0) {
+            return Component.translatable("curvyblocks.hud.wait").withStyle(ChatFormatting.YELLOW);
+        }
+        if (queuedPlacement) {
+            return Component.translatable("curvyblocks.hud.route_queued", CurveKeys.CANCEL.getTranslatedKeyMessage())
+                    .withStyle(ChatFormatting.YELLOW);
+        }
+        if (routing()) {
+            return Component.translatable(validity.translationKey()).withStyle(ChatFormatting.YELLOW);
+        }
+        if (validity == PlacementResult.INTERSECTS_BLOCK) {
+            return Component.translatable("curvyblocks.hud.blocked", CurveKeys.AUTO_ROUTE.getTranslatedKeyMessage())
+                    .withStyle(ChatFormatting.RED);
+        }
+        if (!valid()) {
+            return Component.translatable(validity.translationKey()).withStyle(ChatFormatting.RED);
+        }
+        return Component.translatable("curvyblocks.hud.draft", minecraft.options.keyShift.getTranslatedKeyMessage(),
+                CurveKeys.HELP.getTranslatedKeyMessage());
+    }
+
+    private List<Component> helpLines(Minecraft minecraft, boolean build, ItemStack held) {
         List<Component> lines = new ArrayList<>();
         if (build) {
-            lines.add(Component.translatable("curvyblocks.hud.material", held.getHoverName(),
-                    Component.translatable(section.translationKey()), format(THICKNESSES[thicknessIndex] / CurveLimits.UNITS_PER_BLOCK)));
+            lines.add(statusLine(held));
             lines.add(Component.translatable(points.isEmpty() ? "curvyblocks.hud.start" : "curvyblocks.hud.edit",
                     minecraft.options.keyShift.getTranslatedKeyMessage()));
             lines.add(Component.translatable("curvyblocks.hud.settings", CurveKeys.THICKNESS.getTranslatedKeyMessage(),
-                    CurveKeys.SECTION.getTranslatedKeyMessage(), CurveKeys.GRID.getTranslatedKeyMessage(),
-                    GRID_STEPS[gridIndex] == 0.0 ? Component.translatable("curvyblocks.grid.off") : Component.literal(format(GRID_STEPS[gridIndex]))));
+                    CurveKeys.SECTION.getTranslatedKeyMessage(), CurveKeys.GRID.getTranslatedKeyMessage()));
             if (!points.isEmpty()) {
                 lines.add(Component.translatable("curvyblocks.hud.cancel", CurveKeys.UNDO.getTranslatedKeyMessage(),
                         CurveKeys.CANCEL.getTranslatedKeyMessage(), CurveKeys.FINISH.getTranslatedKeyMessage()));
-                lines.add(Component.translatable("curvyblocks.hud.auto_route", CurveKeys.AUTO_ROUTE.getTranslatedKeyMessage()));
             }
-            if (preview != null) {
-                lines.add(Component.translatable("curvyblocks.hud.cost", format(preview.geometry().length()), cost,
-                        available));
-            }
-            if (!valid() && !points.isEmpty()) {
-                lines.add(Component.translatable(validity.translationKey()).withStyle(routing() ? ChatFormatting.YELLOW : ChatFormatting.RED));
-            }
+            lines.add(Component.translatable("curvyblocks.hud.auto_route", CurveKeys.AUTO_ROUTE.getTranslatedKeyMessage()));
             lines.add(Component.translatable("curvyblocks.hud.free", minecraft.options.keySprint.getTranslatedKeyMessage(),
                     CurveKeys.TOGGLE.getTranslatedKeyMessage()));
         } else if (hit != null) {
@@ -650,14 +699,15 @@ public final class CurveEditor {
         if (hit != null) {
             lines.add(Component.translatable("curvyblocks.hud.pick", minecraft.options.keyPickItem.getTranslatedKeyMessage()));
         }
-        if (pendingRequest != 0) {
-            lines.add(Component.translatable("curvyblocks.hud.wait").withStyle(ChatFormatting.YELLOW));
-        }
-        if (queuedPlacement) {
-            lines.add(Component.translatable("curvyblocks.hud.route_queued", CurveKeys.CANCEL.getTranslatedKeyMessage())
-                    .withStyle(ChatFormatting.YELLOW));
-        }
-        hud = List.copyOf(lines);
+        return List.copyOf(lines);
+    }
+
+    private Component statusLine(ItemStack held) {
+        double grid = GRID_STEPS[gridIndex];
+        Component snapping = grid == 0.0 ? Component.translatable("curvyblocks.grid.off")
+                : Component.translatable("curvyblocks.grid.fraction", Math.round(1.0 / grid));
+        return Component.translatable("curvyblocks.hud.status", held.getHoverName(), Component.translatable(section.translationKey()),
+                format(THICKNESSES[thicknessIndex] / CurveLimits.UNITS_PER_BLOCK), snapping);
     }
 
     private static String format(double value) {

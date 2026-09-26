@@ -16,6 +16,7 @@ public final class CurveKeys {
     public static final KeyMapping THICKNESS = key("thickness", GLFW.GLFW_KEY_R);
     public static final KeyMapping SECTION = key("section", GLFW.GLFW_KEY_V);
     public static final KeyMapping AUTO_ROUTE = key("auto_route", GLFW.GLFW_KEY_LEFT_ALT);
+    public static final KeyMapping HELP = key("help", GLFW.GLFW_KEY_H);
 
     private CurveKeys() {
     }
@@ -33,5 +34,6 @@ public final class CurveKeys {
         event.register(THICKNESS);
         event.register(SECTION);
         event.register(AUTO_ROUTE);
+        event.register(HELP);
     }
 }

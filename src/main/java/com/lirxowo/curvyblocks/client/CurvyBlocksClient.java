@@ -3,6 +3,7 @@ package com.lirxowo.curvyblocks.client;
 import com.lirxowo.curvyblocks.CurvyBlocks;
 import com.lirxowo.curvyblocks.client.render.CurveHud;
 import com.lirxowo.curvyblocks.client.render.CurveRenderer;
+import com.lirxowo.curvyblocks.config.CurveClientConfig;
 import com.lirxowo.curvyblocks.network.CurveNetwork;
 import com.lirxowo.curvyblocks.network.CurvePayloads;
 import com.lirxowo.curvyblocks.placement.CurveInteractions;
@@ -15,7 +16,9 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
@@ -35,7 +38,8 @@ public final class CurvyBlocksClient {
     private static final CurveHud HUD = new CurveHud();
     private static ClientLevel level;
 
-    public CurvyBlocksClient(IEventBus modBus) {
+    public CurvyBlocksClient(IEventBus modBus, ModContainer container) {
+        container.registerConfig(ModConfig.Type.CLIENT, CurveClientConfig.SPEC);
         modBus.addListener(CurveKeys::register);
         modBus.addListener(CurvyBlocksClient::registerReload);
         CurveNetwork.setClientReceiver(CurvyBlocksClient::receive);
@@ -137,7 +141,7 @@ public final class CurvyBlocksClient {
     public static void renderGui(RenderGuiEvent.Post event) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player != null && minecraft.screen == null && !minecraft.options.hideGui) {
-            HUD.render(event.getGuiGraphics(), EDITOR.hud());
+            HUD.render(event.getGuiGraphics(), EDITOR.hud(), EDITOR.hudFaint());
         }
     }
 
