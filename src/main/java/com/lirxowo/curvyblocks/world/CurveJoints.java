@@ -21,7 +21,7 @@ import net.minecraft.world.phys.Vec3;
 
 public final class CurveJoints {
     private static final double ANCHOR_TOLERANCE = 1.0 / 256.0;
-    private static final double MERGE_DISTANCE_SQUARED = ANCHOR_TOLERANCE * ANCHOR_TOLERANCE;
+    private static final double ANCHOR_TOLERANCE_SQUARED = ANCHOR_TOLERANCE * ANCHOR_TOLERANCE;
     private static final Comparator<CurveKnot> KNOT_ORDER = Comparator.comparingDouble((CurveKnot knot) -> knot.position().x)
             .thenComparingDouble(knot -> knot.position().y).thenComparingDouble(knot -> knot.position().z);
     private final CurveIndex index;
@@ -90,11 +90,18 @@ public final class CurveJoints {
         double childRadius = child.section().outerRadius(child.diameter());
         for (CurvePoint point : child.points()) {
             Curve parent = parent(child, point);
-            if (parent != null && parent.section() == CrossSection.ROUND) {
-                double radius = (Math.max(childRadius, parent.section().outerRadius(parent.diameter())) + ANCHOR_TOLERANCE) * scale;
-                merger.add(parent.id(), child.id(), point.position(), radius);
+            if (parent == null || parent.section() != CrossSection.ROUND || isAtEndpoint(parent, point.position())) {
+                continue;
             }
+            double radius = (Math.max(childRadius, parent.section().outerRadius(parent.diameter())) + ANCHOR_TOLERANCE) * scale;
+            merger.add(parent.id(), child.id(), point.position(), radius);
         }
+    }
+
+    private static boolean isAtEndpoint(Curve curve, Vec3 position) {
+        List<CurvePoint> points = curve.points();
+        return position.distanceToSqr(points.getFirst().position()) <= ANCHOR_TOLERANCE_SQUARED
+                || position.distanceToSqr(points.getLast().position()) <= ANCHOR_TOLERANCE_SQUARED;
     }
 
     private void refresh() {
@@ -148,7 +155,7 @@ public final class CurveJoints {
 
     private CurveKnot nearest(Vec3 position) {
         CurveKnot closest = null;
-        double distance = MERGE_DISTANCE_SQUARED;
+        double distance = ANCHOR_TOLERANCE_SQUARED;
         int maxX = Mth.floor(position.x + ANCHOR_TOLERANCE);
         int maxY = Mth.floor(position.y + ANCHOR_TOLERANCE);
         int maxZ = Mth.floor(position.z + ANCHOR_TOLERANCE);
@@ -278,7 +285,7 @@ public final class CurveJoints {
                         List<KnotBuilder> bucket = cells.get(BlockPos.asLong(x, y, z));
                         if (bucket != null) {
                             for (KnotBuilder knot : bucket) {
-                                if (knot.position.distanceToSqr(position) <= MERGE_DISTANCE_SQUARED) {
+                                if (knot.position.distanceToSqr(position) <= ANCHOR_TOLERANCE_SQUARED) {
                                     return knot;
                                 }
                             }
