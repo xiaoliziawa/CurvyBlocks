@@ -268,8 +268,7 @@ public final class CurveEditor {
         Vec3 eye = rayOrigin != null ? rayOrigin : minecraft.player.getEyePosition();
         Vec3 direction = rayDirection != null ? rayDirection : minecraft.player.getLookAngle();
         double reach = minecraft.player.blockInteractionRange();
-        BlockHitResult block = minecraft.level.clip(new ClipContext(eye, eye.add(direction.scale(reach)),
-                ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, minecraft.player));
+        BlockHitResult block = blockHit(minecraft, eye, direction, reach);
         double blockDistance = block.getType() == HitResult.Type.MISS ? reach : eye.distanceTo(block.getLocation());
         hit = curves.index().pick(eye, direction, blockDistance);
         if (!canBuild()) {
@@ -289,6 +288,14 @@ public final class CurveEditor {
         } else {
             target = new CurvePoint(CurveMath.snap(eye.add(direction.scale(Math.min(freeDistance, reach))), GRID_STEPS[gridIndex]), Vec3.ZERO);
         }
+    }
+
+    private static BlockHitResult blockHit(Minecraft minecraft, Vec3 eye, Vec3 direction, double reach) {
+        if (minecraft.getCameraEntity() == minecraft.player && minecraft.hitResult instanceof BlockHitResult vanillaHit) {
+            return vanillaHit;
+        }
+        return minecraft.level.clip(new ClipContext(eye, eye.add(direction.scale(reach)),
+                ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, minecraft.player));
     }
 
     private void updatePreview() {

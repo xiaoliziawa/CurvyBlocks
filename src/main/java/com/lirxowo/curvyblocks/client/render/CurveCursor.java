@@ -11,6 +11,7 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
@@ -28,7 +29,7 @@ final class CurveCursor implements AutoCloseable {
     private static final double NANOS_PER_SECOND = 1_000_000_000.0;
     private static final float COLOR_CHANNEL_MAX = 255.0F;
     private static final RenderType RENDER_TYPE = RenderType.create(
-            "curvyblocks_cursor", DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.TRIANGLES, RING_BUFFER_BYTES,
+            "curvyblocks_cursor", DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS, RING_BUFFER_BYTES,
             RenderType.CompositeState.builder()
                     .setShaderState(RenderStateShard.POSITION_COLOR_SHADER)
                     .setTransparencyState(RenderStateShard.TRANSLUCENT_TRANSPARENCY)
@@ -45,7 +46,7 @@ final class CurveCursor implements AutoCloseable {
     private double z;
 
     CurveCursor(ByteBufferBuilder scratch) {
-        BufferBuilder builder = new BufferBuilder(scratch, VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
+        BufferBuilder builder = new BufferBuilder(scratch, VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
         for (int segment = 0; segment < RING_SEGMENTS; segment++) {
             double first = segment * Math.TAU / RING_SEGMENTS;
             double second = (segment + 1) * Math.TAU / RING_SEGMENTS;
@@ -55,8 +56,6 @@ final class CurveCursor implements AutoCloseable {
             float secondY = (float) Math.sin(second);
             vertex(builder, firstX, firstY);
             vertex(builder, secondX, secondY);
-            vertex(builder, secondX * INNER_RADIUS, secondY * INNER_RADIUS);
-            vertex(builder, firstX, firstY);
             vertex(builder, secondX * INNER_RADIUS, secondY * INNER_RADIUS);
             vertex(builder, firstX * INNER_RADIUS, firstY * INNER_RADIUS);
         }
@@ -79,17 +78,14 @@ final class CurveCursor implements AutoCloseable {
         float blue = (color & 255) / COLOR_CHANNEL_MAX;
         try {
             RenderSystem.setShaderColor(red, green, blue, NODE_OPACITY);
-            for (CurvePoint node : nodes) {
-                Vec3 position = node.position();
-                drawRing(event, position.x, position.y, position.z, NODE_RADIUS);
-            }
+            drawNodes(event, nodes);
             if (target == null) {
                 hide();
                 return;
             }
             follow(target.position());
             RenderSystem.setShaderColor(red, green, blue, 1.0F);
-            drawRing(event, x, y, z, CURSOR_RADIUS);
+            mesh.draw(RENDER_TYPE, event, ringPose(event, x, y, z, CURSOR_RADIUS));
         } finally {
             RenderSystem.setShaderColor(previousRed, previousGreen, previousBlue, previousAlpha);
         }
@@ -116,11 +112,25 @@ final class CurveCursor implements AutoCloseable {
         following = true;
     }
 
-    private void drawRing(RenderLevelStageEvent event, double x, double y, double z, float radius) {
+    private void drawNodes(RenderLevelStageEvent event, List<CurvePoint> nodes) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+        ShaderInstance shader = GpuMesh.begin(RENDER_TYPE, event);
+        try {
+            for (CurvePoint node : nodes) {
+                Vec3 position = node.position();
+                mesh.draw(shader, event, ringPose(event, position.x, position.y, position.z, NODE_RADIUS));
+            }
+        } finally {
+            GpuMesh.end(RENDER_TYPE, shader);
+        }
+    }
+
+    private Matrix4f ringPose(RenderLevelStageEvent event, double x, double y, double z, float radius) {
         Vec3 camera = event.getCamera().getPosition();
-        pose.translation((float) (x - camera.x), (float) (y - camera.y), (float) (z - camera.z))
+        return pose.translation((float) (x - camera.x), (float) (y - camera.y), (float) (z - camera.z))
                 .rotate(event.getCamera().rotation()).scale(radius);
-        mesh.draw(RENDER_TYPE, event, pose);
     }
 
     void hide() {

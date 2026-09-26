@@ -35,6 +35,7 @@ public final class CurveIndex {
                         .put(curve.id(), curve);
             }
         }
+        joints.invalidate(curve);
     }
 
     public Curve remove(long id) {
@@ -56,6 +57,7 @@ public final class CurveIndex {
                 }
             }
         }
+        joints.invalidate(curve);
         return curve;
     }
 
@@ -130,13 +132,12 @@ public final class CurveIndex {
                             || !CurvePhysics.hasCollision(curve.material())) {
                         continue;
                     }
-                    for (CurveGeometry.Segment segment : curve.geometry().segments()) {
-                        if (segment.bounds().intersects(box)) {
-                            if (result == existing) {
-                                result = new ArrayList<>(existing);
-                            }
-                            result.add(segment.shape());
+                    CurveGeometry geometry = curve.geometry();
+                    for (int i = geometry.nextSegment(box, 0); i >= 0; i = geometry.nextSegment(box, i + 1)) {
+                        if (result == existing) {
+                            result = new ArrayList<>(existing);
                         }
+                        result.add(geometry.segmentShape(i));
                     }
                 }
             }
@@ -148,11 +149,11 @@ public final class CurveIndex {
         if (curves.isEmpty() || range <= 0.0) {
             return null;
         }
-        Vec3 end = origin.add(direction.scale(range));
-        int minX = chunk(Math.min(origin.x, end.x) - CurveLimits.PICK_PADDING);
-        int minZ = chunk(Math.min(origin.z, end.z) - CurveLimits.PICK_PADDING);
-        int maxX = chunk(Math.max(origin.x, end.x) + CurveLimits.PICK_PADDING);
-        int maxZ = chunk(Math.max(origin.z, end.z) + CurveLimits.PICK_PADDING);
+        AABB ray = new AABB(origin, origin.add(direction.scale(range))).inflate(CurveLimits.PICK_PADDING);
+        int minX = chunk(ray.minX);
+        int minZ = chunk(ray.minZ);
+        int maxX = chunk(ray.maxX);
+        int maxZ = chunk(ray.maxZ);
         Curve closest = null;
         double distance = range;
         for (int x = minX; x <= maxX; x++) {
@@ -167,8 +168,10 @@ public final class CurveIndex {
                             || CurveMath.rayBox(origin, direction, bounds, distance) > distance) {
                         continue;
                     }
-                    for (CurveGeometry.Segment segment : curve.geometry().segments()) {
-                        double hit = CurveMath.rayBox(origin, direction, segment.bounds(), distance);
+                    CurveGeometry geometry = curve.geometry();
+                    List<AABB> segments = geometry.segmentBounds();
+                    for (int i = geometry.nextSegment(ray, 0); i >= 0; i = geometry.nextSegment(ray, i + 1)) {
+                        double hit = CurveMath.rayBox(origin, direction, segments.get(i), distance);
                         if (hit <= distance) {
                             distance = hit;
                             closest = curve;

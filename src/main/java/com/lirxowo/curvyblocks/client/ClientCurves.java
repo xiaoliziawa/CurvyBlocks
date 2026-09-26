@@ -63,10 +63,18 @@ public final class ClientCurves {
     }
 
     public void add(Curve curve) {
+        if (level == null) {
+            return;
+        }
         AABB bounds = curve.geometry().bounds();
         for (int x = CurveIndex.chunk(bounds.minX); x <= CurveIndex.chunk(bounds.maxX); x++) {
             for (int z = CurveIndex.chunk(bounds.minZ); z <= CurveIndex.chunk(bounds.maxZ); z++) {
-                LongSet ids = watched.get(ChunkPos.asLong(x, z));
+                long chunk = ChunkPos.asLong(x, z);
+                LongSet ids = watched.get(chunk);
+                if (ids == null && level.getChunkSource().hasChunk(x, z)) {
+                    ids = new LongOpenHashSet();
+                    watched.put(chunk, ids);
+                }
                 if (ids != null) {
                     retain(ids, curve);
                 }
@@ -110,9 +118,10 @@ public final class ClientCurves {
         AABB bounds = curve.geometry().bounds();
         for (int x = CurveIndex.chunk(bounds.minX); x <= CurveIndex.chunk(bounds.maxX); x++) {
             for (int z = CurveIndex.chunk(bounds.minZ); z <= CurveIndex.chunk(bounds.maxZ); z++) {
-                LongSet ids = watched.get(ChunkPos.asLong(x, z));
-                if (ids != null) {
-                    ids.remove(id);
+                long chunk = ChunkPos.asLong(x, z);
+                LongSet ids = watched.get(chunk);
+                if (ids != null && ids.remove(id) && ids.isEmpty()) {
+                    watched.remove(chunk);
                 }
             }
         }

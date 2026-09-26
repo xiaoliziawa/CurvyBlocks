@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import com.lirxowo.curvyblocks.geometry.CurveGeometry;
+import com.lirxowo.curvyblocks.geometry.CurveMath;
 import com.lirxowo.curvyblocks.world.Curve;
 import com.lirxowo.curvyblocks.world.CurveIndex;
 
@@ -26,7 +27,6 @@ public final class CurveContactCache implements Consumer<Curve> {
     private AABB bounds;
     private AABB expanded;
     private long revision = -1L;
-    private int tick = Integer.MIN_VALUE;
     private int effectTick = Integer.MIN_VALUE;
     private boolean applyingEffects;
     private double centerX;
@@ -45,7 +45,7 @@ public final class CurveContactCache implements Consumer<Curve> {
             return;
         }
         AABB nextBounds = entity.getBoundingBox();
-        if (index == nextIndex && bounds == nextBounds && tick == entity.tickCount && revision == nextIndex.revision()) {
+        if (index == nextIndex && bounds == nextBounds && revision == nextIndex.revision()) {
             return;
         }
         if (index != nextIndex) {
@@ -53,7 +53,6 @@ public final class CurveContactCache implements Consumer<Curve> {
         }
         index = nextIndex;
         bounds = nextBounds;
-        tick = entity.tickCount;
         revision = index.revision();
         expanded = bounds.inflate(CONTACT_MARGIN);
         centerX = (bounds.minX + bounds.maxX) * 0.5;
@@ -81,16 +80,15 @@ public final class CurveContactCache implements Consumer<Curve> {
         AABB closestBody = null;
         double closestBodyDistance = Double.POSITIVE_INFINITY;
         boolean solid = CurvePhysics.hasCollision(curve.material());
-        for (CurveGeometry.Segment segment : curve.geometry().segments()) {
-            AABB box = segment.bounds();
-            if (!box.intersects(expanded)) {
-                continue;
-            }
+        CurveGeometry geometry = curve.geometry();
+        List<AABB> segments = geometry.segmentBounds();
+        for (int i = geometry.nextSegment(expanded, 0); i >= 0; i = geometry.nextSegment(expanded, i + 1)) {
+            AABB box = segments.get(i);
             double overlapX = Math.min(bounds.maxX, box.maxX) - Math.max(bounds.minX, box.minX);
             double overlapZ = Math.min(bounds.maxZ, box.maxZ) - Math.max(bounds.minZ, box.minZ);
             if (solid && overlapX > 0.0 && overlapZ > 0.0 && Math.abs(bounds.minY - box.maxY) <= CONTACT_MARGIN) {
                 double area = overlapX * overlapZ;
-                double distance = distanceToBox(box, centerX, bounds.minY, centerZ);
+                double distance = CurveMath.distanceToBoxSquared(box, centerX, bounds.minY, centerZ);
                 if (area > supportArea || area == supportArea && (distance < supportDistance
                         || distance == supportDistance && supportCurve != null && curve.id() < supportCurve.id())) {
                     supportArea = area;
@@ -99,7 +97,7 @@ public final class CurveContactCache implements Consumer<Curve> {
                     supportBounds = box;
                 }
             }
-            double distance = distanceToBox(box, centerX, centerY, centerZ);
+            double distance = CurveMath.distanceToBoxSquared(box, centerX, centerY, centerZ);
             if (distance < closestTouchDistance) {
                 closestTouchDistance = distance;
                 closestTouch = box;
@@ -127,13 +125,6 @@ public final class CurveContactCache implements Consumer<Curve> {
                 Math.clamp(y, box.minY, Math.nextDown(box.maxY)),
                 Math.clamp(centerZ, box.minZ, Math.nextDown(box.maxZ)));
         return new CurveContact(curve, box, position);
-    }
-
-    private static double distanceToBox(AABB box, double x, double y, double z) {
-        double dx = x - Math.clamp(x, box.minX, box.maxX);
-        double dy = y - Math.clamp(y, box.minY, box.maxY);
-        double dz = z - Math.clamp(z, box.minZ, box.maxZ);
-        return dx * dx + dy * dy + dz * dz;
     }
 
     public CurveContact support() {

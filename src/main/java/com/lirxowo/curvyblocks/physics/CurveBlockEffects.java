@@ -1,5 +1,7 @@
 package com.lirxowo.curvyblocks.physics;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import com.lirxowo.curvyblocks.CurvyBlocks;
 
 import it.unimi.dsi.fastutil.objects.Reference2IntMap;
@@ -14,6 +16,7 @@ import net.neoforged.neoforge.event.entity.living.LivingFallEvent;
 
 public final class CurveBlockEffects {
     private static final ThreadLocal<Context> CONTEXT = ThreadLocal.withInitial(Context::new);
+    private static final AtomicInteger ACTIVE_CONTEXTS = new AtomicInteger();
     private static final WorldMutation WORLD_MUTATION = new WorldMutation();
 
     private CurveBlockEffects() {
@@ -64,14 +67,17 @@ public final class CurveBlockEffects {
 
     @SubscribeEvent(receiveCanceled = true)
     public static void onLivingFall(LivingFallEvent event) {
+        if (!active()) {
+            return;
+        }
         Context context = CONTEXT.get();
-        if (context.active && context.entity == event.getEntity()) {
+        if (context.entity == event.getEntity()) {
             context.fallHandled = true;
         }
     }
 
     public static boolean active() {
-        return CONTEXT.get().active;
+        return ACTIVE_CONTEXTS.get() != 0 && CONTEXT.get().active;
     }
 
     public static void rejectWorldMutation() {
@@ -98,12 +104,14 @@ public final class CurveBlockEffects {
             }
             active = true;
             fallHandled = false;
+            ACTIVE_CONTEXTS.incrementAndGet();
             return true;
         }
 
         private void end() {
             active = false;
             entity = null;
+            ACTIVE_CONTEXTS.decrementAndGet();
         }
 
         private void disable(Block block, Effect effect, RuntimeException exception) {

@@ -20,6 +20,8 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
@@ -35,7 +37,9 @@ public final class CurveRenderer {
     private final Long2ObjectMap<CurveMesh> meshes = new Long2ObjectOpenHashMap<>();
     private final Long2ObjectMap<CurveMesh> previewKnots = new Long2ObjectOpenHashMap<>();
     private final LongSet dirtyLights = new LongOpenHashSet();
+    private final List<CurveMesh> opaque = new ArrayList<>();
     private final List<CurveMesh> transparent = new ArrayList<>();
+    private final List<CurveMesh> previews = new ArrayList<>();
     private ByteBufferBuilder scratch;
     private CurveMesh preview;
     private CurveOutline outline;
@@ -47,6 +51,7 @@ public final class CurveRenderer {
     private List<CurveKnot> previewKnotShapes = List.of();
     private long selectedId = -1L;
     private int lightTick;
+    private int renderTick;
 
     public void render(RenderLevelStageEvent event, CurveIndex index, CurveEditor editor) {
         ClientLevel level = Minecraft.getInstance().level;
@@ -73,9 +78,7 @@ public final class CurveRenderer {
             if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_CUTOUT_MIPPED_BLOCKS_BLOCKS) {
                 prepareAndDraw(event, index);
             } else if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_TRIPWIRE_BLOCKS) {
-                for (CurveMesh mesh : transparent) {
-                    mesh.draw(event);
-                }
+                drawBatch(event, transparent, CurveRenderTypes.TRANSLUCENT);
             } else if (editor.enabled() && Minecraft.getInstance().screen == null) {
                 drawEditor(event, editor, index);
             } else if (cursor != null) {
@@ -94,6 +97,7 @@ public final class CurveRenderer {
     }
 
     private void prepareAndDraw(RenderLevelStageEvent event, CurveIndex index) {
+        opaque.clear();
         transparent.clear();
         int builds = 0;
         Vec3 camera = event.getCamera().getPosition();
@@ -102,29 +106,51 @@ public final class CurveRenderer {
             if (!event.getFrustum().isVisible(joints.bounds(curve))) {
                 continue;
             }
-            List<CurveKnot> knots = joints.forCurve(curve.id());
-            CurveMesh mesh = meshes.get(curve.id());
+            long id = curve.id();
+            List<CurveKnot> knots = joints.forCurve(id);
+            CurveMesh mesh = meshes.get(id);
             if (mesh == null) {
                 if (builds >= MESH_BUILDS_PER_FRAME) {
                     continue;
                 }
                 mesh = new CurveMesh(false);
                 mesh.update(curve, true, knots, scratch());
-                meshes.put(curve.id(), mesh);
+                meshes.put(id, mesh);
                 builds++;
-            } else if ((dirtyLights.contains(curve.id()) || !mesh.knotsMatch(knots)) && builds < MESH_BUILDS_PER_FRAME) {
-                mesh.update(curve, true, knots, scratch());
-                dirtyLights.remove(curve.id());
-                builds++;
+            } else {
+                if (renderTick - mesh.visibleTick() > LIGHT_CHECK_INTERVAL && mesh.lightingChanged()) {
+                    dirtyLights.add(id);
+                }
+                if ((dirtyLights.contains(id) || !mesh.knotsMatch(knots)) && builds < MESH_BUILDS_PER_FRAME) {
+                    mesh.update(curve, true, knots, scratch());
+                    dirtyLights.remove(id);
+                    builds++;
+                }
             }
+            mesh.markVisible(renderTick);
             if (mesh.translucent()) {
                 mesh.prepareSort(camera);
                 transparent.add(mesh);
             } else {
-                mesh.draw(event);
+                opaque.add(mesh);
             }
         }
         transparent.sort(BACK_TO_FRONT);
+        drawBatch(event, opaque, CurveRenderTypes.SOLID);
+    }
+
+    private static void drawBatch(RenderLevelStageEvent event, List<CurveMesh> batch, RenderType type) {
+        if (batch.isEmpty()) {
+            return;
+        }
+        ShaderInstance shader = GpuMesh.begin(type, event);
+        try {
+            for (CurveMesh mesh : batch) {
+                mesh.draw(shader, event);
+            }
+        } finally {
+            GpuMesh.end(type, shader);
+        }
     }
 
     private void drawEditor(RenderLevelStageEvent event, CurveEditor editor, CurveIndex index) {
@@ -144,14 +170,11 @@ public final class CurveRenderer {
                 updatePreviewKnots(index, draft, editor.valid());
                 lastJointRevision = jointRevision;
             }
-            preview.drawPreviewDepth(event);
-            for (CurveMesh knot : previewKnots.values()) {
-                knot.drawPreviewDepth(event);
-            }
-            preview.drawPreviewColor(event);
-            for (CurveMesh knot : previewKnots.values()) {
-                knot.drawPreviewColor(event);
-            }
+            previews.clear();
+            previews.add(preview);
+            previews.addAll(previewKnots.values());
+            drawBatch(event, previews, CurveRenderTypes.PREVIEW_DEPTH);
+            drawBatch(event, previews, CurveRenderTypes.PREVIEW_COLOR);
         } else {
             clearPreviewKnots();
         }
@@ -225,10 +248,12 @@ public final class CurveRenderer {
     }
 
     public void tick() {
+        renderTick++;
         lightTick = (lightTick + 1) % LIGHT_CHECK_INTERVAL;
         for (CurveMesh mesh : meshes.values()) {
             long id = mesh.curve().id();
-            if (id % LIGHT_CHECK_INTERVAL == lightTick && !dirtyLights.contains(id) && mesh.lightingChanged()) {
+            if (id % LIGHT_CHECK_INTERVAL == lightTick && renderTick - mesh.visibleTick() <= LIGHT_CHECK_INTERVAL
+                    && !dirtyLights.contains(id) && mesh.lightingChanged()) {
                 dirtyLights.add(id);
             }
         }
@@ -248,9 +273,12 @@ public final class CurveRenderer {
             mesh.close();
         }
         meshes.clear();
+        opaque.clear();
         transparent.clear();
+        previews.clear();
         dirtyLights.clear();
         clearPreviewKnots();
+        BlockPalette.clearAppearances();
         if (preview != null) {
             preview.close();
             preview = null;

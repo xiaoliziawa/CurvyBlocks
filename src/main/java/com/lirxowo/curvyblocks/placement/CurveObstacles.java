@@ -29,9 +29,9 @@ public final class CurveObstacles {
     }
 
     public int firstIntersection(CurveGeometry geometry) {
-        List<CurveGeometry.Segment> segments = geometry.segments();
+        List<AABB> segments = geometry.segmentBounds();
         for (int i = 0; i < segments.size(); i++) {
-            if (firstObstacle(segments.get(i).bounds().deflate(CurveLimits.EPSILON)) != null) {
+            if (firstObstacle(segments.get(i).deflate(CurveLimits.EPSILON)) != null) {
                 return i;
             }
         }

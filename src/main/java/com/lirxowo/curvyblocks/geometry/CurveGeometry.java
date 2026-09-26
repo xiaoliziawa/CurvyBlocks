@@ -16,12 +16,16 @@ public final class CurveGeometry {
     private static final double BEND_SAMPLING_FACTOR = 8.0;
     private static final double MAX_ARCH_SPREAD = 0.9;
     private static final double ARCH_SPREAD_FACTOR = 2.0;
+    private static final int SEGMENT_GROUP_SHIFT = 4;
+    private static final int SEGMENT_GROUP_SIZE = 1 << SEGMENT_GROUP_SHIFT;
 
     private final List<Sample> samples;
-    private final List<Segment> segments;
+    private final List<AABB> segmentBounds;
+    private final AABB[] groupBounds;
     private final AABB bounds;
     private final double length;
     private final int[] spanEnds;
+    private VoxelShape[] segmentShapes;
 
     public CurveGeometry(List<CurvePoint> points, int thickness, CrossSection section) {
         this(points, thickness, section, List.of());
@@ -89,18 +93,30 @@ public final class CurveGeometry {
             }
             spanEnds[edge] = sampleList.size() - 1;
         }
-        List<Segment> segmentList = new ArrayList<>(sampleList.size() - 1);
-        AABB totalBounds = ringBounds(sampleList.getFirst(), radius, section);
+        List<AABB> segmentList = new ArrayList<>(sampleList.size() - 1);
+        AABB previousRing = ringBounds(sampleList.getFirst(), radius, section);
+        AABB totalBounds = previousRing;
         for (int i = 1; i < sampleList.size(); i++) {
-            AABB segmentBounds = ringBounds(sampleList.get(i - 1), radius, section)
-                    .minmax(ringBounds(sampleList.get(i), radius, section));
-            segmentList.add(new Segment(segmentBounds, Shapes.create(segmentBounds)));
-            totalBounds = totalBounds.minmax(segmentBounds);
+            AABB ring = ringBounds(sampleList.get(i), radius, section);
+            AABB segment = previousRing.minmax(ring);
+            segmentList.add(segment);
+            totalBounds = totalBounds.minmax(segment);
+            previousRing = ring;
         }
         samples = List.copyOf(sampleList);
-        segments = List.copyOf(segmentList);
+        segmentBounds = List.copyOf(segmentList);
+        groupBounds = groupBounds(segmentBounds);
         bounds = totalBounds;
         length = distance;
+    }
+
+    private static AABB[] groupBounds(List<AABB> segments) {
+        AABB[] groups = new AABB[(segments.size() + SEGMENT_GROUP_SIZE - 1) >> SEGMENT_GROUP_SHIFT];
+        for (int i = 0; i < segments.size(); i++) {
+            int group = i >> SEGMENT_GROUP_SHIFT;
+            groups[group] = groups[group] == null ? segments.get(i) : groups[group].minmax(segments.get(i));
+        }
+        return groups;
     }
 
     private static void validate(List<CurvePoint> points, int thickness) {
@@ -171,14 +187,15 @@ public final class CurveGeometry {
     }
 
     public boolean containsCenterline(Vec3 position, double tolerance) {
-        if (position.x < bounds.minX - tolerance || position.x > bounds.maxX + tolerance
-                || position.y < bounds.minY - tolerance || position.y > bounds.maxY + tolerance
-                || position.z < bounds.minZ - tolerance || position.z > bounds.maxZ + tolerance) {
+        double reach = tolerance + CurveLimits.EPSILON;
+        AABB area = new AABB(position.x - reach, position.y - reach, position.z - reach,
+                position.x + reach, position.y + reach, position.z + reach);
+        if (!bounds.intersects(area)) {
             return false;
         }
         double maximum = tolerance * tolerance;
-        for (int i = 1; i < samples.size(); i++) {
-            if (CurveMath.pointSegmentDistanceSquared(position, samples.get(i - 1).position(), samples.get(i).position()) <= maximum) {
+        for (int i = nextSegment(area, 0); i >= 0; i = nextSegment(area, i + 1)) {
+            if (CurveMath.pointSegmentDistanceSquared(position, samples.get(i).position(), samples.get(i + 1).position()) <= maximum) {
                 return true;
             }
         }
@@ -186,23 +203,61 @@ public final class CurveGeometry {
     }
 
     public Sample project(Vec3 position) {
-        int closest = 1;
+        int closest = 0;
         double closestDistance = Double.POSITIVE_INFINITY;
-        for (int i = 1; i < samples.size(); i++) {
-            double distance = CurveMath.pointSegmentDistanceSquared(position,
-                    samples.get(i - 1).position(), samples.get(i).position());
-            if (distance < closestDistance) {
-                closest = i;
-                closestDistance = distance;
+        for (int group = 0; group < groupBounds.length; group++) {
+            if (CurveMath.distanceToBoxSquared(groupBounds[group], position.x, position.y, position.z) >= closestDistance) {
+                continue;
+            }
+            int end = Math.min(segmentBounds.size(), (group + 1) << SEGMENT_GROUP_SHIFT);
+            for (int i = group << SEGMENT_GROUP_SHIFT; i < end; i++) {
+                double distance = CurveMath.pointSegmentDistanceSquared(position,
+                        samples.get(i).position(), samples.get(i + 1).position());
+                if (distance < closestDistance) {
+                    closest = i;
+                    closestDistance = distance;
+                }
             }
         }
-        Sample start = samples.get(closest - 1);
-        Sample end = samples.get(closest);
+        Sample start = samples.get(closest);
+        Sample end = samples.get(closest + 1);
         return start.interpolate(end, CurveMath.segmentProjection(position, start.position(), end.position()));
     }
 
-    public List<Segment> segments() {
-        return segments;
+    public List<AABB> segmentBounds() {
+        return segmentBounds;
+    }
+
+    public int nextSegment(AABB box, int from) {
+        int count = segmentBounds.size();
+        int index = from;
+        while (index < count) {
+            int group = index >> SEGMENT_GROUP_SHIFT;
+            int groupEnd = Math.min(count, (group + 1) << SEGMENT_GROUP_SHIFT);
+            if (groupBounds[group].intersects(box)) {
+                for (; index < groupEnd; index++) {
+                    if (segmentBounds.get(index).intersects(box)) {
+                        return index;
+                    }
+                }
+            }
+            index = groupEnd;
+        }
+        return -1;
+    }
+
+    public VoxelShape segmentShape(int segment) {
+        VoxelShape[] shapes = segmentShapes;
+        if (shapes == null) {
+            shapes = new VoxelShape[segmentBounds.size()];
+            segmentShapes = shapes;
+        }
+        VoxelShape shape = shapes[segment];
+        if (shape == null) {
+            shape = Shapes.create(segmentBounds.get(segment));
+            shapes[segment] = shape;
+        }
+        return shape;
     }
 
     public int controlSpan(int segment) {
@@ -258,8 +313,5 @@ public final class CurveGeometry {
             return new Sample(point, direction, horizontal, direction.cross(horizontal).normalize(),
                     distance + (other.distance - distance) * fraction, BlockPos.containing(point));
         }
-    }
-
-    public record Segment(AABB bounds, VoxelShape shape) {
     }
 }

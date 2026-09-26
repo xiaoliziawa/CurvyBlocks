@@ -5,7 +5,7 @@ import net.minecraft.world.phys.Vec3;
 
 final class KnotSphere {
     private static final int FACE_STEPS = 8;
-    private static final int VERTICES_PER_QUAD = 6;
+    private static final int VERTICES_PER_QUAD = 4;
     private static final Vertex[][] FACES = build();
 
     private KnotSphere() {
@@ -37,8 +37,6 @@ final class KnotSphere {
                 for (int x = 0; x < FACE_STEPS; x++) {
                     vertices[index++] = grid[y][x];
                     vertices[index++] = grid[y][x + 1];
-                    vertices[index++] = grid[y + 1][x + 1];
-                    vertices[index++] = grid[y][x];
                     vertices[index++] = grid[y + 1][x + 1];
                     vertices[index++] = grid[y + 1][x];
                 }

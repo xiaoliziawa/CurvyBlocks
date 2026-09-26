@@ -128,8 +128,9 @@ public final class CurvePathfinder {
         int endSegment = geometry.endSegment(activeSpan);
         int firstBlocked = -1;
         int lastBlocked = -1;
+        List<AABB> segments = geometry.segmentBounds();
         for (int segment = firstSegment; segment < endSegment; segment++) {
-            AABB blocker = obstacles.firstObstacle(geometry.segments().get(segment).bounds().deflate(CurveLimits.EPSILON));
+            AABB blocker = obstacles.firstObstacle(segments.get(segment).deflate(CurveLimits.EPSILON));
             if (blocker != null) {
                 blockers = blockers == null ? blocker : blockers.minmax(blocker);
                 if (firstBlocked < 0) {

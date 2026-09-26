@@ -13,6 +13,9 @@ import com.lirxowo.curvyblocks.geometry.CurvePoint;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ChunkPos;
@@ -26,6 +29,8 @@ public final class CurveJoints {
             .thenComparingDouble(knot -> knot.position().y).thenComparingDouble(knot -> knot.position().z);
     private final CurveIndex index;
     private final ParentSearch parentSearch = new ParentSearch();
+    private final Long2ObjectMap<List<Anchor>> anchors = new Long2ObjectOpenHashMap<>();
+    private final LongSet dirty = new LongOpenHashSet();
     private final Long2ObjectMap<List<CurveKnot>> byParent = new Long2ObjectOpenHashMap<>();
     private final Long2ObjectMap<List<CurveKnot>> chunks = new Long2ObjectOpenHashMap<>();
     private final Long2ObjectMap<List<CurveKnot>> cells = new Long2ObjectOpenHashMap<>();
@@ -83,19 +88,40 @@ public final class CurveJoints {
         return parentSearch.found;
     }
 
-    private void collect(Curve child, Merger merger) {
+    private List<Anchor> anchors(Curve child) {
         if (child.section() != CrossSection.ROUND) {
-            return;
+            return List.of();
         }
         double childRadius = child.section().outerRadius(child.diameter());
+        List<Anchor> found = new ArrayList<>();
         for (CurvePoint point : child.points()) {
             Curve parent = parent(child, point);
             if (parent == null || parent.section() != CrossSection.ROUND || isAtEndpoint(parent, point.position())) {
                 continue;
             }
-            double radius = (Math.max(childRadius, parent.section().outerRadius(parent.diameter())) + ANCHOR_TOLERANCE) * scale;
-            merger.add(parent.id(), child.id(), point.position(), radius);
+            double radius = Math.max(childRadius, parent.section().outerRadius(parent.diameter())) + ANCHOR_TOLERANCE;
+            found.add(new Anchor(parent.id(), point.position(), radius));
         }
+        return List.copyOf(found);
+    }
+
+    void invalidate(Curve changed) {
+        dirty.add(changed.id());
+        AABB area = changed.geometry().bounds().inflate(ANCHOR_TOLERANCE);
+        index.visit(area, candidate -> {
+            if (candidate.id() != changed.id() && hasPointInside(candidate, area)) {
+                dirty.add(candidate.id());
+            }
+        });
+    }
+
+    private static boolean hasPointInside(Curve curve, AABB area) {
+        for (CurvePoint point : curve.points()) {
+            if (area.contains(point.position())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isAtEndpoint(Curve curve, Vec3 position) {
@@ -109,12 +135,17 @@ public final class CurveJoints {
         if (indexedRevision == index.revision() && scale == nextScale) {
             return;
         }
-        clear();
         indexedRevision = index.revision();
         scale = nextScale;
+        updateAnchors();
+        resetKnots();
         Merger merger = new Merger();
-        for (Curve curve : index.all()) {
-            collect(curve, merger);
+        for (Long2ObjectMap.Entry<List<Anchor>> entry : anchors.long2ObjectEntrySet()) {
+            for (Anchor anchor : entry.getValue()) {
+                if (index.get(anchor.parentId()) != null) {
+                    merger.add(anchor.parentId(), entry.getLongKey(), anchor.position(), anchor.radius() * scale);
+                }
+            }
         }
         for (CurveKnot knot : merger.finish()) {
             add(byParent, knot.parentId(), knot);
@@ -136,10 +167,27 @@ public final class CurveJoints {
         }
     }
 
+    private void updateAnchors() {
+        LongIterator iterator = dirty.iterator();
+        while (iterator.hasNext()) {
+            long id = iterator.nextLong();
+            Curve curve = index.get(id);
+            List<Anchor> found = curve == null ? List.of() : anchors(curve);
+            if (found.isEmpty()) {
+                anchors.remove(id);
+            } else {
+                anchors.put(id, found);
+            }
+        }
+        dirty.clear();
+    }
+
     public Long2ObjectMap<List<CurveKnot>> preview(Curve draft) {
         refresh();
         Merger merger = new Merger();
-        collect(draft, merger);
+        for (Anchor anchor : anchors(draft)) {
+            merger.add(anchor.parentId(), draft.id(), anchor.position(), anchor.radius() * scale);
+        }
         Long2ObjectMap<List<CurveKnot>> result = new Long2ObjectOpenHashMap<>();
         for (CurveKnot knot : merger.finish()) {
             CurveKnot existing = nearest(knot.position());
@@ -214,13 +262,19 @@ public final class CurveJoints {
     }
 
     void clear() {
+        anchors.clear();
+        dirty.clear();
+        parentSearch.found = null;
+        parentSearch.position = null;
+        indexedRevision = -1L;
+        resetKnots();
+    }
+
+    private void resetKnots() {
         byParent.clear();
         chunks.clear();
         cells.clear();
         visibleBounds.clear();
-        parentSearch.found = null;
-        parentSearch.position = null;
-        indexedRevision = -1L;
         revision++;
     }
 
@@ -233,6 +287,9 @@ public final class CurveJoints {
             entry.getValue().sort(KNOT_ORDER);
             entry.setValue(List.copyOf(entry.getValue()));
         }
+    }
+
+    private record Anchor(long parentId, Vec3 position, double radius) {
     }
 
     private static final class ParentSearch implements Consumer<Curve> {

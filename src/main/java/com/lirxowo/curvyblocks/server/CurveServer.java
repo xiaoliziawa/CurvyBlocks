@@ -1,6 +1,7 @@
 package com.lirxowo.curvyblocks.server;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -287,12 +288,11 @@ public final class CurveServer {
 
     @SubscribeEvent
     public static void chunkSent(ChunkWatchEvent.Sent event) {
-        List<Curve> curves = new ArrayList<>(CurveSavedData.get(event.getLevel()).index().inChunk(event.getPos().toLong()));
-        if (curves.isEmpty()) {
-            PacketDistributor.sendToPlayer(event.getPlayer(), new CurvePayloads.ChunkSync(
-                    event.getLevel().dimension().location(), event.getPos().toLong(), true, List.of()));
+        Collection<Curve> inChunk = CurveSavedData.get(event.getLevel()).index().inChunk(event.getPos().toLong());
+        if (inChunk.isEmpty()) {
             return;
         }
+        List<Curve> curves = new ArrayList<>(inChunk);
         for (int start = 0; start < curves.size(); start += CurvePayloads.MAX_BATCH_SIZE) {
             List<Curve> batch = List.copyOf(curves.subList(start, Math.min(curves.size(), start + CurvePayloads.MAX_BATCH_SIZE)));
             PacketDistributor.sendToPlayer(event.getPlayer(), new CurvePayloads.ChunkSync(
@@ -302,8 +302,12 @@ public final class CurveServer {
 
     @SubscribeEvent
     public static void chunkUnwatch(ChunkWatchEvent.UnWatch event) {
-        PacketDistributor.sendToPlayer(event.getPlayer(), new CurvePayloads.ForgetChunk(
-                event.getLevel().dimension().location(), event.getPos().toLong()));
+        long chunk = event.getPos().toLong();
+        CurveIndex index = CurveWorlds.get(event.getLevel());
+        if (index != null && !index.inChunk(chunk).isEmpty()) {
+            PacketDistributor.sendToPlayer(event.getPlayer(), new CurvePayloads.ForgetChunk(
+                    event.getLevel().dimension().location(), chunk));
+        }
     }
 
     @SubscribeEvent

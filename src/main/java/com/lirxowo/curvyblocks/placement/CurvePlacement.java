@@ -76,13 +76,8 @@ public final class CurvePlacement {
         }
         if (CurveConfig.SOLID_CURVES.get() && CurvePhysics.hasCollision(curve.material())) {
             for (Entity entity : level.getEntities((Entity) null, bounds, candidate -> candidate.isAlive() && !candidate.isSpectator())) {
-                if (!entity.isPickable()) {
-                    continue;
-                }
-                for (CurveGeometry.Segment segment : curve.geometry().segments()) {
-                    if (segment.bounds().intersects(entity.getBoundingBox())) {
-                        return PlacementResult.INTERSECTS_ENTITY;
-                    }
+                if (entity.isPickable() && curve.geometry().nextSegment(entity.getBoundingBox(), 0) >= 0) {
+                    return PlacementResult.INTERSECTS_ENTITY;
                 }
             }
         }
@@ -91,8 +86,8 @@ public final class CurvePlacement {
 
     public static LongSet occupiedBlocks(Curve curve) {
         LongSet positions = new LongOpenHashSet();
-        for (CurveGeometry.Segment segment : curve.geometry().segments()) {
-            AABB box = segment.bounds().deflate(CurveLimits.EPSILON);
+        for (AABB segment : curve.geometry().segmentBounds()) {
+            AABB box = segment.deflate(CurveLimits.EPSILON);
             for (int x = Mth.floor(box.minX); x <= Mth.floor(box.maxX); x++) {
                 for (int y = Mth.floor(box.minY); y <= Mth.floor(box.maxY); y++) {
                     for (int z = Mth.floor(box.minZ); z <= Mth.floor(box.maxZ); z++) {

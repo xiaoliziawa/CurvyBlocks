@@ -46,6 +46,13 @@ public final class CurveMath {
         return Math.clamp(projection / lengthSquared, 0.0, 1.0);
     }
 
+    public static double distanceToBoxSquared(AABB box, double x, double y, double z) {
+        double dx = x - Math.clamp(x, box.minX, box.maxX);
+        double dy = y - Math.clamp(y, box.minY, box.maxY);
+        double dz = z - Math.clamp(z, box.minZ, box.maxZ);
+        return dx * dx + dy * dy + dz * dz;
+    }
+
     public static double rayBox(Vec3 origin, Vec3 direction, AABB box, double maximum) {
         double near = 0.0;
         double far = maximum;

@@ -1,5 +1,6 @@
 package com.lirxowo.curvyblocks.client.render;
 
+import java.util.Arrays;
 import java.util.List;
 
 import com.lirxowo.curvyblocks.geometry.CrossSection;
@@ -13,12 +14,11 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.Sheets;
+import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.FastColor;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
@@ -26,27 +26,34 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 final class CurveMesh implements AutoCloseable {
     static final int ROUND_SIDES = 12;
     private static final int SQUARE_SIDES = 4;
+    private static final int START_CAP_FACE = 4;
+    private static final int END_CAP_FACE = 5;
     private static final float TEXTURE_INSET = 1.0F / 1024.0F;
+    private static final float CAP_CENTER_UV = 0.5F;
     private static final int PREVIEW_ALPHA = 150;
     private static final int PREVIEW_VALID = 0x9BFFE3;
     private static final int PREVIEW_INVALID = 0xFF6666;
-    private static final RenderType SOLID = RenderType.entityCutoutNoCull(TextureAtlas.LOCATION_BLOCKS);
-    private static final RenderType TRANSLUCENT = Sheets.translucentCullBlockSheet();
-    private static final int[] NO_LIGHTS = new int[0];
+    private static final int NO_SHADING = 0xFFFFFFFF;
+    private static final int[] EMPTY_INTS = new int[0];
+    private static final BlockPos[] NO_CELLS = new BlockPos[0];
     private final GpuMesh mesh;
     private final boolean preview;
     private Curve curve;
     private BlockPalette palette;
-    private int[] lights;
-    private int[] knotLights;
+    private BlockPos[] lightCells = NO_CELLS;
+    private int[] cellLights = EMPTY_INTS;
+    private int[] sampleCells = EMPTY_INTS;
+    private int[] knotLights = EMPTY_INTS;
     private List<CurveKnot> knots = List.of();
-    private int tint = 0xFFFFFF;
-    private int alpha = 255;
+    private int shading = NO_SHADING;
     private double[] horizontal;
     private double[] vertical;
+    private double[] normalRight;
+    private double[] normalUp;
     private Vec3 center;
     private Vec3 origin;
     private double cameraDistance;
+    private int visibleTick;
 
     CurveMesh(boolean preview) {
         this.preview = preview;
@@ -71,50 +78,80 @@ final class CurveMesh implements AutoCloseable {
             bounds = bounds.minmax(knot.bounds());
         }
         center = bounds.getCenter();
-        tint = preview ? valid ? PREVIEW_VALID : PREVIEW_INVALID : 0xFFFFFF;
-        alpha = preview ? PREVIEW_ALPHA : 255;
-        List<CurveGeometry.Sample> samples = curve.geometry().samples();
-        lights = knotsOnly ? NO_LIGHTS : new int[samples.size()];
-        for (int i = 0; i < lights.length; i++) {
-            lights[i] = light(samples.get(i));
+        shading = shading(valid);
+        if (knotsOnly) {
+            lightCells = NO_CELLS;
+            cellLights = EMPTY_INTS;
+            sampleCells = EMPTY_INTS;
+        } else {
+            indexLightCells(curve.geometry().samples());
         }
-        knotLights = knots.isEmpty() ? NO_LIGHTS : new int[knots.size()];
+        knotLights = knots.isEmpty() ? EMPTY_INTS : new int[knots.size()];
         for (int i = 0; i < knotLights.length; i++) {
             knotLights[i] = light(knots.get(i).lightPosition());
         }
     }
 
+    private int shading(boolean valid) {
+        return preview ? FastColor.ARGB32.color(PREVIEW_ALPHA, valid ? PREVIEW_VALID : PREVIEW_INVALID) : NO_SHADING;
+    }
+
+    private void indexLightCells(List<CurveGeometry.Sample> samples) {
+        BlockPos[] cells = new BlockPos[samples.size()];
+        sampleCells = new int[samples.size()];
+        int count = 0;
+        for (int i = 0; i < samples.size(); i++) {
+            BlockPos position = samples.get(i).lightPosition();
+            if (count == 0 || !cells[count - 1].equals(position)) {
+                cells[count++] = position;
+            }
+            sampleCells[i] = count - 1;
+        }
+        lightCells = Arrays.copyOf(cells, count);
+        cellLights = new int[count];
+        for (int i = 0; i < count; i++) {
+            cellLights[i] = light(lightCells[i]);
+        }
+    }
+
+    private int sampleLight(int sample) {
+        return cellLights[sampleCells[sample]];
+    }
+
     void update(Curve curve, boolean valid, List<CurveKnot> knots, ByteBufferBuilder scratch) {
         prepare(curve, valid, knots, false);
+        buildProfile();
         List<CurveGeometry.Sample> samples = curve.geometry().samples();
-        int sides = curve.section() == CrossSection.ROUND ? ROUND_SIDES : SQUARE_SIDES;
-        horizontal = new double[sides + 1];
-        vertical = new double[sides + 1];
-        double radius = curve.section().outerRadius(curve.diameter());
-        double shift = curve.section() == CrossSection.SQUARE ? -Math.PI / 4.0 : 0.0;
-        for (int side = 0; side <= sides; side++) {
-            double angle = side * Math.TAU / sides + shift;
-            horizontal[side] = Math.cos(angle) * radius;
-            vertical[side] = Math.sin(angle) * radius;
-        }
-        BufferBuilder builder = new BufferBuilder(scratch, VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.NEW_ENTITY);
+        BufferBuilder builder = new BufferBuilder(scratch, VertexFormat.Mode.QUADS, DefaultVertexFormat.NEW_ENTITY);
+        Ring from = new Ring();
+        Ring to = new Ring();
+        from.set(samples.getFirst());
         for (int i = 1; i < samples.size(); i++) {
             CurveGeometry.Sample start = samples.get(i - 1);
             CurveGeometry.Sample end = samples.get(i);
+            if (from.sample != start) {
+                from.set(start);
+            }
             double distance = start.distance();
-            CurveGeometry.Sample cursor = start;
             while (distance < end.distance() - CurveLimits.EPSILON) {
                 double tile = Math.floor(distance + CurveLimits.EPSILON);
                 double stop = Math.min(end.distance(), tile + 1.0);
                 double fraction = (stop - start.distance()) / (end.distance() - start.distance());
-                CurveGeometry.Sample next = start.interpolate(end, fraction);
-                strip(builder, cursor, next, (float) Math.max(0.0, distance - tile), (float) (stop - tile), lights[i - 1], lights[i]);
-                cursor = next;
+                to.set(start.interpolate(end, fraction));
+                strip(builder, from, to, (float) Math.max(0.0, distance - tile), (float) (stop - tile),
+                        sampleLight(i - 1), sampleLight(i));
+                Ring swap = from;
+                from = to;
+                to = swap;
                 distance = stop;
             }
         }
-        cap(builder, samples.getFirst(), false, lights[0]);
-        cap(builder, samples.getLast(), true, lights[lights.length - 1]);
+        to.set(samples.getFirst());
+        cap(builder, to, false, sampleLight(0));
+        if (from.sample != samples.getLast()) {
+            from.set(samples.getLast());
+        }
+        cap(builder, from, true, sampleLight(samples.size() - 1));
         appendKnots(builder);
         mesh.upload(builder.buildOrThrow(), origin);
         scratch.clear();
@@ -122,25 +159,52 @@ final class CurveMesh implements AutoCloseable {
 
     void updateKnots(Curve parent, boolean valid, List<CurveKnot> knots, ByteBufferBuilder scratch) {
         prepare(parent, valid, knots, true);
-        BufferBuilder builder = new BufferBuilder(scratch, VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.NEW_ENTITY);
+        BufferBuilder builder = new BufferBuilder(scratch, VertexFormat.Mode.QUADS, DefaultVertexFormat.NEW_ENTITY);
         appendKnots(builder);
         mesh.upload(builder.buildOrThrow(), origin);
         scratch.clear();
     }
 
+    private void buildProfile() {
+        boolean square = curve.section() == CrossSection.SQUARE;
+        int sides = square ? SQUARE_SIDES : ROUND_SIDES;
+        horizontal = new double[sides + 1];
+        vertical = new double[sides + 1];
+        normalRight = new double[sides + 1];
+        normalUp = new double[sides + 1];
+        double radius = curve.section().outerRadius(curve.diameter());
+        double shift = square ? -Math.PI / 4.0 : 0.0;
+        for (int side = 0; side <= sides; side++) {
+            double angle = side * Math.TAU / sides + shift;
+            horizontal[side] = Math.cos(angle) * radius;
+            vertical[side] = Math.sin(angle) * radius;
+        }
+        for (int slot = 0; slot <= sides; slot++) {
+            int side = slot % sides;
+            double right = square ? vertical[side + 1] - vertical[side] : horizontal[slot];
+            double up = square ? horizontal[side] - horizontal[side + 1] : vertical[slot];
+            double length = Math.hypot(right, up);
+            normalRight[slot] = right / length;
+            normalUp[slot] = up / length;
+        }
+    }
+
     private void appendKnots(BufferBuilder builder) {
         for (int i = 0; i < knots.size(); i++) {
             CurveKnot knot = knots.get(i);
-            Vec3 position = knot.position();
+            double centerX = knot.position().x - origin.x;
+            double centerY = knot.position().y - origin.y;
+            double centerZ = knot.position().z - origin.z;
             double radius = knot.radius();
             int light = knotLights[i];
             for (int face = 0; face < BlockPalette.faceCount(); face++) {
                 TextureAtlasSprite sprite = palette.surface(face).sprite();
-                int color = palette.color(face, knot.lightPosition());
+                int color = shade(palette.color(face, knot.lightPosition()));
                 for (KnotSphere.Vertex sample : KnotSphere.face(face)) {
                     Vec3 normal = sample.normal();
-                    vertex(builder, position.x + normal.x * radius, position.y + normal.y * radius,
-                            position.z + normal.z * radius, normal, sprite, sample.u(), sample.v(), color, light);
+                    vertex(builder, (float) (centerX + normal.x * radius), (float) (centerY + normal.y * radius),
+                            (float) (centerZ + normal.z * radius), (float) normal.x, (float) normal.y, (float) normal.z,
+                            sprite, sample.u(), sample.v(), color, light);
                 }
             }
         }
@@ -151,91 +215,82 @@ final class CurveMesh implements AutoCloseable {
     }
 
     boolean previewKnotsMatch(Curve parent, boolean valid, List<CurveKnot> next) {
-        return curve == parent && tint == (valid ? PREVIEW_VALID : PREVIEW_INVALID) && knotsMatch(next) && !lightingChanged();
+        return curve == parent && shading == shading(valid) && knotsMatch(next) && !lightingChanged();
     }
 
-    private void strip(BufferBuilder builder, CurveGeometry.Sample start, CurveGeometry.Sample end,
-                       float startV, float endV, int firstLight, int secondLight) {
+    private void strip(BufferBuilder builder, Ring from, Ring to, float startV, float endV, int firstLight, int secondLight) {
         int sides = horizontal.length - 1;
         int perFace = sides / SQUARE_SIDES;
+        boolean square = curve.section() == CrossSection.SQUARE;
         for (int side = 0; side < sides; side++) {
             int face = side / perFace;
             TextureAtlasSprite sprite = palette.surface(face).sprite();
             float firstU = (side % perFace) / (float) perFace;
             float secondU = (side % perFace + 1) / (float) perFace;
-            int firstColor = palette.color(face, start.lightPosition());
-            int secondColor = palette.color(face, end.lightPosition());
-            Vec3 a = start.offset(horizontal[side], vertical[side]);
-            Vec3 b = start.offset(horizontal[side + 1], vertical[side + 1]);
-            Vec3 c = end.offset(horizontal[side + 1], vertical[side + 1]);
-            Vec3 d = end.offset(horizontal[side], vertical[side]);
-            Vec3 na = normal(start, side, false);
-            Vec3 nb = normal(start, side, true);
-            Vec3 nc = normal(end, side, true);
-            Vec3 nd = normal(end, side, false);
-            vertex(builder, a, na, sprite, firstU, startV, firstColor, firstLight);
-            vertex(builder, b, nb, sprite, secondU, startV, firstColor, firstLight);
-            vertex(builder, c, nc, sprite, secondU, endV, secondColor, secondLight);
-            vertex(builder, a, na, sprite, firstU, startV, firstColor, firstLight);
-            vertex(builder, c, nc, sprite, secondU, endV, secondColor, secondLight);
-            vertex(builder, d, nd, sprite, firstU, endV, secondColor, secondLight);
+            int secondNormal = square ? side : side + 1;
+            ringVertex(builder, from, side, side, sprite, firstU, startV, from.colors[face], firstLight);
+            ringVertex(builder, from, side + 1, secondNormal, sprite, secondU, startV, from.colors[face], firstLight);
+            ringVertex(builder, to, side + 1, secondNormal, sprite, secondU, endV, to.colors[face], secondLight);
+            ringVertex(builder, to, side, side, sprite, firstU, endV, to.colors[face], secondLight);
         }
     }
 
-    private Vec3 normal(CurveGeometry.Sample sample, int side, boolean next) {
-        double x;
-        double y;
-        if (curve.section() == CrossSection.SQUARE) {
-            x = vertical[side + 1] - vertical[side];
-            y = horizontal[side] - horizontal[side + 1];
-        } else {
-            int index = next ? side + 1 : side;
-            x = horizontal[index];
-            y = vertical[index];
-        }
-        return sample.right().scale(x).add(sample.up().scale(y)).normalize();
-    }
-
-    private void cap(BufferBuilder builder, CurveGeometry.Sample sample, boolean end, int light) {
-        int face = end ? 5 : 4;
+    private void cap(BufferBuilder builder, Ring ring, boolean end, int light) {
+        int face = end ? END_CAP_FACE : START_CAP_FACE;
         TextureAtlasSprite sprite = palette.surface(face).sprite();
-        Vec3 normal = end ? sample.tangent() : sample.tangent().scale(-1.0);
-        int color = palette.color(face, sample.lightPosition());
-        for (int side = 0; side < horizontal.length - 1; side++) {
-            int first = end ? side : side + 1;
-            int second = end ? side + 1 : side;
-            vertex(builder, sample.position(), normal, sprite, 0.5F, 0.5F, color, light);
-            vertex(builder, sample.offset(horizontal[first], vertical[first]), normal, sprite,
-                    (float) (0.5 + horizontal[first] / curve.diameter()),
-                    (float) (0.5 + vertical[first] / curve.diameter()), color, light);
-            vertex(builder, sample.offset(horizontal[second], vertical[second]), normal, sprite,
-                    (float) (0.5 + horizontal[second] / curve.diameter()),
-                    (float) (0.5 + vertical[second] / curve.diameter()), color, light);
+        CurveGeometry.Sample sample = ring.sample;
+        Vec3 tangent = end ? sample.tangent() : sample.tangent().scale(-1.0);
+        float normalX = (float) tangent.x;
+        float normalY = (float) tangent.y;
+        float normalZ = (float) tangent.z;
+        int color = shade(palette.color(face, sample.lightPosition()));
+        float centerX = (float) (sample.position().x - origin.x);
+        float centerY = (float) (sample.position().y - origin.y);
+        float centerZ = (float) (sample.position().z - origin.z);
+        for (int side = 0; side < horizontal.length - 1; side += 2) {
+            vertex(builder, centerX, centerY, centerZ, normalX, normalY, normalZ, sprite, CAP_CENTER_UV, CAP_CENTER_UV, color, light);
+            capVertex(builder, ring, end ? side : side + 2, normalX, normalY, normalZ, sprite, color, light);
+            capVertex(builder, ring, side + 1, normalX, normalY, normalZ, sprite, color, light);
+            capVertex(builder, ring, end ? side + 2 : side, normalX, normalY, normalZ, sprite, color, light);
         }
     }
 
-    private void vertex(BufferBuilder builder, Vec3 position, Vec3 normal, TextureAtlasSprite sprite,
-                        float u, float v, int color, int light) {
-        vertex(builder, position.x, position.y, position.z, normal, sprite, u, v, color, light);
+    private void capVertex(BufferBuilder builder, Ring ring, int corner, float normalX, float normalY, float normalZ,
+                           TextureAtlasSprite sprite, int color, int light) {
+        int position = corner * 3;
+        vertex(builder, ring.positions[position], ring.positions[position + 1], ring.positions[position + 2],
+                normalX, normalY, normalZ, sprite, (float) (CAP_CENTER_UV + horizontal[corner] / curve.diameter()),
+                (float) (CAP_CENTER_UV + vertical[corner] / curve.diameter()), color, light);
     }
 
-    private void vertex(BufferBuilder builder, double x, double y, double z, Vec3 normal, TextureAtlasSprite sprite,
-                        float u, float v, int color, int light) {
-        int red = (color >> 16 & 255) * (tint >> 16 & 255) / 255;
-        int green = (color >> 8 & 255) * (tint >> 8 & 255) / 255;
-        int blue = (color & 255) * (tint & 255) / 255;
-        builder.addVertex((float) (x - origin.x), (float) (y - origin.y), (float) (z - origin.z))
-                .setColor(red, green, blue, alpha)
-                .setUv(sprite.getU(Math.clamp(u, TEXTURE_INSET, 1.0F - TEXTURE_INSET)),
-                        sprite.getV(Math.clamp(v, TEXTURE_INSET, 1.0F - TEXTURE_INSET)))
+    private static void ringVertex(BufferBuilder builder, Ring ring, int corner, int normal, TextureAtlasSprite sprite,
+                                   float u, float v, int color, int light) {
+        int position = corner * 3;
+        int direction = normal * 3;
+        vertex(builder, ring.positions[position], ring.positions[position + 1], ring.positions[position + 2],
+                ring.normals[direction], ring.normals[direction + 1], ring.normals[direction + 2], sprite, u, v, color, light);
+    }
+
+    private static void vertex(BufferBuilder builder, float x, float y, float z, float normalX, float normalY, float normalZ,
+                               TextureAtlasSprite sprite, float u, float v, int color, int light) {
+        builder.addVertex(x, y, z)
+                .setColor(color)
+                .setUv(sprite.getU(inset(u)), sprite.getV(inset(v)))
                 .setOverlay(OverlayTexture.NO_OVERLAY).setLight(light)
-                .setNormal((float) normal.x, (float) normal.y, (float) normal.z);
+                .setNormal(normalX, normalY, normalZ);
+    }
+
+    private static float inset(float value) {
+        return Math.clamp(value, TEXTURE_INSET, 1.0F - TEXTURE_INSET);
+    }
+
+    private int shade(int color) {
+        return FastColor.ARGB32.multiply(FastColor.ARGB32.opaque(color), shading);
     }
 
     boolean lightingChanged() {
-        List<CurveGeometry.Sample> samples = curve.geometry().samples();
-        for (int i = 0; i < lights.length; i++) {
-            if (lights[i] != light(samples.get(i))) {
+        for (int i = 0; i < lightCells.length; i++) {
+            if (cellLights[i] != light(lightCells[i])) {
                 return true;
             }
         }
@@ -245,10 +300,6 @@ final class CurveMesh implements AutoCloseable {
             }
         }
         return false;
-    }
-
-    private int light(CurveGeometry.Sample sample) {
-        return light(sample.lightPosition());
     }
 
     private int light(BlockPos position) {
@@ -271,25 +322,48 @@ final class CurveMesh implements AutoCloseable {
         return cameraDistance;
     }
 
-    void draw(RenderLevelStageEvent event) {
-        if (preview) {
-            drawPreviewDepth(event);
-            drawPreviewColor(event);
-        } else {
-            mesh.draw(translucent() ? TRANSLUCENT : SOLID, event);
-        }
+    int visibleTick() {
+        return visibleTick;
     }
 
-    void drawPreviewDepth(RenderLevelStageEvent event) {
-        mesh.draw(CurveRenderTypes.PREVIEW_DEPTH, event);
+    void markVisible(int tick) {
+        visibleTick = tick;
     }
 
-    void drawPreviewColor(RenderLevelStageEvent event) {
-        mesh.draw(CurveRenderTypes.PREVIEW_COLOR, event);
+    void draw(ShaderInstance shader, RenderLevelStageEvent event) {
+        mesh.draw(shader, event);
     }
 
     @Override
     public void close() {
         mesh.close();
+    }
+
+    private final class Ring {
+        private final float[] positions = new float[horizontal.length * 3];
+        private final float[] normals = new float[horizontal.length * 3];
+        private final int[] colors = new int[SQUARE_SIDES];
+        private CurveGeometry.Sample sample;
+
+        private void set(CurveGeometry.Sample next) {
+            sample = next;
+            Vec3 right = next.right();
+            Vec3 up = next.up();
+            double x = next.position().x - origin.x;
+            double y = next.position().y - origin.y;
+            double z = next.position().z - origin.z;
+            for (int corner = 0; corner < horizontal.length; corner++) {
+                int index = corner * 3;
+                positions[index] = (float) (x + right.x * horizontal[corner] + up.x * vertical[corner]);
+                positions[index + 1] = (float) (y + right.y * horizontal[corner] + up.y * vertical[corner]);
+                positions[index + 2] = (float) (z + right.z * horizontal[corner] + up.z * vertical[corner]);
+                normals[index] = (float) (right.x * normalRight[corner] + up.x * normalUp[corner]);
+                normals[index + 1] = (float) (right.y * normalRight[corner] + up.y * normalUp[corner]);
+                normals[index + 2] = (float) (right.z * normalRight[corner] + up.z * normalUp[corner]);
+            }
+            for (int face = 0; face < colors.length; face++) {
+                colors[face] = shade(palette.color(face, next.lightPosition()));
+            }
+        }
     }
 }
